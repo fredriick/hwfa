@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+.turbo/
+
+# Go
+backend/**/bin/
+*.exe
+*.exe~
+*.test
+*.out
+
+# Secrets & keys — NEVER commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.keystore
+*.p8
+*.p12
+secrets/
+
+# Local databases
+*.sqlite
+*.sqlite3
+*.db
+
+# ML models (delivered via CDN, not repo)
+*.onnx
+*.pt
+*.pth
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Test / coverage
+coverage/
+.nyc_output/

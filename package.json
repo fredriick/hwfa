@@ -1,0 +1,23 @@
+{
+  "name": "hwfa",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Encrypted P2P messenger with global on-device AI scam detection",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "spike": "npm run spike -w @hwfa/crypto"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "tsx": "^4.19.2"
+  }
+}
