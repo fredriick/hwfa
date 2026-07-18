@@ -11,7 +11,8 @@
   "scripts": {
     "test": "node --test --import tsx ./test/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "spike": "tsx ./spike/e2ee-through-relay.ts"
+    "spike": "tsx ./spike/e2ee-through-relay.ts",
+    "spike:discovery": "tsx ./spike/discovery-handshake.ts"
   },
   "dependencies": {
     "@hwfa/models": "*",

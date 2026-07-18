@@ -11,7 +11,8 @@
     "test": "npm run test --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "spike": "npm run spike -w @hwfa/crypto"
+    "spike": "npm run spike -w @hwfa/crypto",
+    "spike:discovery": "npm run spike:discovery -w @hwfa/crypto"
   },
   "engines": {
     "node": ">=20"

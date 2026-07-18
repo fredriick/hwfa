@@ -43,6 +43,12 @@ export interface PublishedKeyBundle {
   oneTimePreKeyPublicB64: string | null;
 }
 
+/** One public one-time prekey, as uploaded to the Discovery API's pool. */
+export interface OneTimePreKeyPublic {
+  id: number;
+  publicB64: string;
+}
+
 export interface DeviceRegistration {
   registrationId: number;
   deviceId: number;
@@ -50,6 +56,12 @@ export interface DeviceRegistration {
   stores: InMemorySignalStores;
   /** A snapshot bundle ready to publish (uses the first one-time prekey). */
   publishedBundle: PublishedKeyBundle;
+  /**
+   * The full public one-time prekey pool, for uploading to Discovery at
+   * registration (`oneTimePreKeys` in the register request). The server hands
+   * these out one per new session; `publishedBundle` only carries the first.
+   */
+  oneTimePreKeys: OneTimePreKeyPublic[];
 }
 
 export interface GenerateOptions {
@@ -106,12 +118,15 @@ export function generateRegistration(opts: GenerateOptions = {}): DeviceRegistra
 
   // One-time prekey pool: ephemeral, consumed one per new inbound session.
   let firstOneTime: { id: number; pub: PublicKey } | null = null;
+  const oneTimePreKeys: OneTimePreKeyPublic[] = [];
   for (let i = 0; i < oneTimeCount; i++) {
     const id = i + 1;
     const kp = PrivateKey.generate();
-    const record = PreKeyRecord.new(id, kp.getPublicKey(), kp);
+    const pub = kp.getPublicKey();
+    const record = PreKeyRecord.new(id, pub, kp);
     void stores.preKey.savePreKey(id, record);
-    if (i === 0) firstOneTime = { id, pub: kp.getPublicKey() };
+    oneTimePreKeys.push({ id, publicB64: b64(pub.serialize()) });
+    if (i === 0) firstOneTime = { id, pub };
   }
 
   const publishedBundle: PublishedKeyBundle = {
@@ -128,7 +143,7 @@ export function generateRegistration(opts: GenerateOptions = {}): DeviceRegistra
     oneTimePreKeyPublicB64: firstOneTime ? b64(firstOneTime.pub.serialize()) : null,
   };
 
-  return { registrationId, deviceId, identityKeyPair, stores, publishedBundle };
+  return { registrationId, deviceId, identityKeyPair, stores, publishedBundle, oneTimePreKeys };
 }
 
 /**

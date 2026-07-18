@@ -27,7 +27,9 @@ the relay only ever seeing opaque envelopes.
 | Crypto core — X3DH/PQXDH + Double Ratchet | `packages/crypto` | ✅ done, 5 unit tests pass |
 | Go WebSocket relay (routing + store-and-forward) | `backend/relay` | ✅ done |
 | E2EE-through-relay integration spike | `packages/crypto/spike` | ✅ exit gate passes |
-| Discovery / Push / Media services | `backend/*` | 🔲 Phase 1 (stubbed) |
+| Discovery API — register/verify, key directory, contact discovery | `backend/discovery` | ✅ done (Phase 1) |
+| Discovery handshake integration spike | `packages/crypto/spike` | ✅ over-the-wire key exchange passes |
+| Push / Media services | `backend/*` | 🔲 Phase 1 (stubbed) |
 | Mobile / Web apps, UI kit | `apps/*`, `packages/ui` | 🔲 Phase 1+ (stubbed) |
 
 ---
@@ -84,6 +86,18 @@ This builds and launches `backend/relay`, spins up two libsignal clients, and
 asserts a real encrypted message survives the round trip client → relay →
 client, plus the offline store-and-forward path.
 
+### Run the Discovery handshake (over-the-wire key exchange, Phase 1)
+
+```bash
+npm run spike:discovery
+```
+
+This launches both `backend/discovery` and `backend/relay`, then has two clients
+register + verify, fetch each other's key bundle **over the wire** from
+Discovery, establish a real X3DH session from it, exchange E2EE messages through
+the relay, and discover each other by salted-hash contact intersection — the
+missing half of the Phase 0 gate, where the bundle was passed in-process.
+
 ### Build / run the relay standalone
 
 ```bash
@@ -101,8 +115,15 @@ scam detection runs after decryption, on the client — the only architecture th
 is both privacy-safe and effective. The relay routes by envelope metadata
 (to / from / timestamp / size) and never decrypts.
 
-## Next: Phase 1 — Core 1:1 messaging
+## Phase 1 — Core 1:1 messaging (in progress)
 
-Phone registration + OTP, the Discovery API (key bundle upload/fetch), the 1:1
-chat UI in `apps/mobile`, SQLCipher message persistence, media sharing, and
-push. See the spec's Phase 1 checklist.
+Done so far, headless + verified:
+
+- ✅ Phone registration + OTP + key-bundle upload/fetch — the **Discovery API**
+  (`backend/discovery`), proven by `npm run spike:discovery`
+- ✅ Privacy-preserving contact discovery (salted-hash intersection)
+
+Still ahead: the 1:1 chat UI in `apps/mobile` (React Native), SQLCipher message
+persistence, media sharing, multi-device linking, push (FCM/APNs), and the
+on-device scam-detection ONNX prototype — the parts that need a real device
+runtime. See the spec's Phase 1 checklist.
