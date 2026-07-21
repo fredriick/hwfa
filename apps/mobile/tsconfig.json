@@ -1,0 +1,9 @@
+{
+  "extends": "@react-native/typescript-config",
+  "compilerOptions": {
+    "types": ["jest", "react-native"],
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*", "App.tsx", "index.js", "__tests__/**/*"],
+  "exclude": ["**/node_modules", "**/Pods", "android", "ios"]
+}
