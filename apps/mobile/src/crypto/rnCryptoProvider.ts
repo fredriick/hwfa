@@ -1,21 +1,20 @@
 /**
- * React Native CryptoProvider — the native Signal-Protocol binding.
+ * React Native CryptoProvider — backed by the `HwfaCrypto` native module.
  *
- * STATUS: placeholder. `@signalapp/libsignal-client` is a Node N-API native
- * module and does NOT run under Hermes/JSC in React Native. Signal's own apps
- * bridge libsignal's Rust core (`libsignal-ffi`) through a native module. The
- * production path here is one of:
+ * The native module (android/.../crypto/HwfaCryptoModule.kt) wraps the official
+ * Signal Rust core via `org.signal:libsignal-android` — the same core as the
+ * Node `@signalapp/libsignal-client`, so bundles + ciphertext are byte-for-byte
+ * compatible with the backend and the `@hwfa/client` headless tests.
  *
- *   1. A React Native native module wrapping `libsignal-ffi` (JSI/TurboModule),
- *      exposing the same 4 methods this interface needs, or
- *   2. `react-native-libsignal-client` if/when a maintained binding exists.
+ * This class is a thin adapter: it holds no key material (the native store does)
+ * and just forwards the four `CryptoProvider` operations across the bridge.
  *
- * The portable client core (`@hwfa/client`) is deliberately decoupled from this:
- * everything else — Discovery onboarding, the relay socket, conversation
- * orchestration — already works (see `packages/client` tests). Only these four
- * methods remain to be backed by real on-device crypto. Ratchet state must then
- * persist to SQLCipher (react-native-quick-sqlite) and identity keys to the
- * Keychain/Keystore (react-native-keychain).
+ * STATUS: Android implemented. iOS pending (the equivalent module over Signal's
+ * official Swift `LibSignalClient`). Ratchet state is in-memory in the native
+ * module for Phase 1 — persist to SQLCipher + Keystore before release.
+ *
+ * LICENSING: libsignal is AGPL-3.0 — a product/legal decision to settle before
+ * shipping (see the native module header).
  */
 import type {
   CryptoProvider,
@@ -23,40 +22,47 @@ import type {
   GenerateRegistrationOptions,
   LocalRegistration,
   PublishedKeyBundle,
-} from "@hwfa/client";
+} from '@hwfa/client';
+import { getNativeCrypto } from './NativeHwfaCrypto';
 
-const NOT_WIRED =
-  "Native libsignal binding not yet implemented. See apps/mobile/src/crypto/rnCryptoProvider.ts — " +
-  "the client core is ready; this is the remaining on-device crypto work (Phase 1).";
+const DEFAULT_ONE_TIME_PREKEYS = 10;
 
 export class RNCryptoProvider implements CryptoProvider {
-  async generateRegistration(
-    _opts?: GenerateRegistrationOptions,
+  generateRegistration(
+    opts: GenerateRegistrationOptions = {},
   ): Promise<LocalRegistration> {
-    throw new Error(NOT_WIRED);
+    return getNativeCrypto().generateRegistration(
+      opts.deviceId ?? 1,
+      opts.oneTimePreKeyCount ?? DEFAULT_ONE_TIME_PREKEYS,
+    );
   }
 
   async establishSession(
-    _peerAccountId: string,
-    _peerDeviceId: number,
-    _peerBundle: PublishedKeyBundle,
+    peerAccountId: string,
+    peerDeviceId: number,
+    peerBundle: PublishedKeyBundle,
   ): Promise<void> {
-    throw new Error(NOT_WIRED);
+    await getNativeCrypto().establishSession(peerAccountId, peerDeviceId, peerBundle);
   }
 
-  async encrypt(
-    _peerAccountId: string,
-    _peerDeviceId: number,
-    _plaintext: string,
+  encrypt(
+    peerAccountId: string,
+    peerDeviceId: number,
+    plaintext: string,
   ): Promise<EncryptedMessage> {
-    throw new Error(NOT_WIRED);
+    return getNativeCrypto().encrypt(peerAccountId, peerDeviceId, plaintext);
   }
 
-  async decrypt(
-    _peerAccountId: string,
-    _peerDeviceId: number,
-    _encrypted: EncryptedMessage,
+  decrypt(
+    peerAccountId: string,
+    peerDeviceId: number,
+    encrypted: EncryptedMessage,
   ): Promise<string> {
-    throw new Error(NOT_WIRED);
+    return getNativeCrypto().decrypt(
+      peerAccountId,
+      peerDeviceId,
+      encrypted.type,
+      encrypted.ciphertextB64,
+    );
   }
 }

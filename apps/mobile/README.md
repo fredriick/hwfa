@@ -21,17 +21,32 @@ src/crypto/rnCryptoProvider native Signal-Protocol binding  ← the one TODO
 src/screens/*               Onboarding · Contacts · Chat
 ```
 
-### The one remaining piece: native crypto
+### Native crypto binding
 
-`@signalapp/libsignal-client` is a Node native module and does **not** run under
-Hermes/JSC. Everything else already works; only `src/crypto/rnCryptoProvider.ts`
-needs a real implementation — a React Native native module wrapping
-`libsignal-ffi` (JSI/TurboModule) exposing the four `CryptoProvider` methods.
-Until then, onboarding surfaces a clear "native binding not implemented" error;
-the UI, Discovery, and relay paths are otherwise complete.
+`@signalapp/libsignal-client` (npm) is a Node native module and does not run
+under Hermes/JSC. Instead the app uses **`org.signal:libsignal-android`** — the
+*same* Signal Rust core with a Java API, versioned to match — through a small
+native module:
 
-Then: persist ratchet state to SQLCipher (`react-native-quick-sqlite`) and
-identity keys to the Keychain/Keystore (`react-native-keychain`).
+```
+android/.../crypto/HwfaCryptoModule.kt   Kotlin module over libsignal-android
+android/.../crypto/HwfaCryptoPackage.kt  registers it (see MainApplication.kt)
+src/crypto/NativeHwfaCrypto.ts           typed JS bridge
+src/crypto/rnCryptoProvider.ts           adapts it to CryptoProvider
+```
+
+Because it's the same core, bundles + ciphertext are byte-for-byte compatible
+with the backend and the `@hwfa/client` headless tests (Kyber PQXDH included).
+
+- **Android: implemented.** **iOS: pending** — the equivalent module over
+  Signal's official Swift `LibSignalClient`.
+- Ratchet state is **in-memory** in the native module for Phase 1 — persist to
+  SQLCipher (`react-native-quick-sqlite`) and identity keys to the Android
+  Keystore / iOS Keychain (`react-native-keychain`) before release.
+
+> ⚠️ **Licensing:** `libsignal` is **AGPL-3.0**. Shipping it makes this app
+> subject to the AGPL. This is a product/legal decision to resolve before
+> release — Signal does not generally grant commercial exceptions.
 
 ## Prerequisites
 

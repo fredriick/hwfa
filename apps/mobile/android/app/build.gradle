@@ -7,15 +7,12 @@ apply plugin: "com.facebook.react"
  * By default you don't need to apply any configuration, just uncomment the lines you need.
  */
 react {
-    /* Folders */
-    //   The root of your project, i.e. where "package.json" lives. Default is '../..'
-    // root = file("../../")
-    //   The folder where the react-native NPM package is. Default is ../../node_modules/react-native
-    // reactNativeDir = file("../../node_modules/react-native")
-    //   The folder where the react-native Codegen package is. Default is ../../node_modules/@react-native/codegen
-    // codegenDir = file("../../node_modules/@react-native/codegen")
-    //   The cli.js file which is the React Native CLI entrypoint. Default is ../../node_modules/react-native/cli.js
-    // cliFile = file("../../node_modules/react-native/cli.js")
+    /* Folders — npm workspaces hoist node_modules to the repo root, i.e.
+       ../../../../node_modules from this app/ dir (app → android → mobile →
+       apps → repo root). 'root' defaults to ../.. (apps/mobile) which is correct. */
+    reactNativeDir = file("../../../../node_modules/react-native")
+    codegenDir = file("../../../../node_modules/@react-native/codegen")
+    cliFile = file("../../../../node_modules/react-native/cli.js")
 
     /* Variants */
     //   The list of variants to that are debuggable. For those we're going to
@@ -78,6 +75,13 @@ android {
     compileSdk rootProject.ext.compileSdkVersion
 
     namespace "com.hwfamobile"
+
+    // libsignal-android uses modern java.* APIs; desugaring backports them to
+    // our minSdk (24). Required by org.signal:libsignal-android.
+    compileOptions {
+        coreLibraryDesugaringEnabled true
+    }
+
     defaultConfig {
         applicationId "com.hwfamobile"
         minSdkVersion rootProject.ext.minSdkVersion
@@ -110,6 +114,12 @@ android {
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
+
+    // Official Signal Protocol core (same Rust core as the Node @signalapp/
+    // libsignal-client; version tracks it). Provides on-device X3DH/PQXDH +
+    // Double Ratchet for HwfaCryptoModule. NOTE: AGPL-3.0 — see the module.
+    implementation("org.signal:libsignal-android:0.73.0")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
