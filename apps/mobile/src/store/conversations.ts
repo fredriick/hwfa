@@ -12,7 +12,7 @@
  * SQLCipher persistence is the next step.
  */
 import { useSyncExternalStore } from 'react';
-import type { ScamVerdict } from '@hwfa/models';
+import type { MessageStatus, ScamVerdict } from '@hwfa/models';
 import { getClient, loadMessages, saveMessages } from '../client/hwfaClient';
 
 export interface ChatMessage {
@@ -20,11 +20,25 @@ export interface ChatMessage {
   text: string;
   mine: boolean;
   at: number;
+  /** Outbound: correlation id for status updates; delivery status. */
+  clientRef?: string;
+  status?: MessageStatus;
+  /** Inbound: server envelope id (to send a read receipt) + whether we sent it. */
+  envelopeId?: string;
+  readSent?: boolean;
   /** On-device scam verdict for inbound messages (absent for outbound). */
   verdict?: ScamVerdict;
   /** User dismissed the inline scam warning for this message. */
   dismissed?: boolean;
 }
+
+/** Monotonic ranking so a late status update never downgrades the tick. */
+const STATUS_RANK: Record<MessageStatus, number> = {
+  sending: 0,
+  sent: 1,
+  delivered: 2,
+  read: 3,
+};
 
 export interface Conversation {
   peerUserId: string;
@@ -63,9 +77,11 @@ class ConversationStore {
   start(): void {
     if (this.started) return;
     this.started = true;
-    getClient().onText(msg =>
-      this.receive(msg.fromUserId, msg.text, msg.receivedAt, msg.verdict),
+    const client = getClient();
+    client.onText(msg =>
+      this.receive(msg.fromUserId, msg.text, msg.receivedAt, msg.envelopeId, msg.verdict),
     );
+    client.onMessageStatus(u => this.applyStatus(u.clientRef, u.status));
     void this.hydrate();
   }
 
@@ -114,17 +130,59 @@ class ConversationStore {
   async send(peerUserId: string, text: string): Promise<void> {
     const conv = this.ensure(peerUserId);
     const at = Date.now();
-    conv.messages = [...conv.messages, this.make(text, true, at)];
+    const message = this.make(text, true, at);
+    const clientRef = `c${this.counter}-${at.toString(36)}`;
+    message.clientRef = clientRef;
+    message.status = 'sending';
+    conv.messages = [...conv.messages, message];
     conv.lastAt = at;
     this.rebuild();
     this.emit();
-    await getClient().sendText(peerUserId, text);
+    // Pass our clientRef so status updates (sent/delivered/read) map back here.
+    await getClient().sendText(peerUserId, text, clientRef);
+  }
+
+  /** Apply an outbound status update (sent → delivered → read), never downgrade. */
+  private applyStatus(clientRef: string, status: MessageStatus): void {
+    for (const conv of this.convs.values()) {
+      const idx = conv.messages.findIndex(m => m.clientRef === clientRef);
+      if (idx === -1) continue;
+      const current = conv.messages[idx]!;
+      const currentRank = current.status ? STATUS_RANK[current.status] : -1;
+      if (STATUS_RANK[status] <= currentRank) return;
+      const updated = { ...current, status };
+      conv.messages = [
+        ...conv.messages.slice(0, idx),
+        updated,
+        ...conv.messages.slice(idx + 1),
+      ];
+      this.rebuild();
+      this.emit();
+      return;
+    }
   }
 
   markRead(peerUserId: string): void {
     const conv = this.convs.get(peerUserId);
-    if (conv && conv.unread !== 0) {
+    if (!conv) return;
+    // Send a read receipt for each inbound message we haven't receipted yet.
+    let changed = false;
+    const client = getClient();
+    conv.messages = conv.messages.map(m => {
+      if (m.mine || m.readSent || !m.envelopeId) return m;
+      try {
+        client.sendReadReceipt(peerUserId, m.envelopeId);
+      } catch {
+        /* not connected — retried next open */
+      }
+      changed = true;
+      return { ...m, readSent: true };
+    });
+    if (conv.unread !== 0) {
       conv.unread = 0;
+      changed = true;
+    }
+    if (changed) {
       this.rebuild();
       this.emit();
     }
@@ -155,9 +213,16 @@ class ConversationStore {
 
   // --- internals ---
 
-  private receive(peerUserId: string, text: string, at: number, verdict?: ScamVerdict): void {
+  private receive(
+    peerUserId: string,
+    text: string,
+    at: number,
+    envelopeId?: string,
+    verdict?: ScamVerdict,
+  ): void {
     const conv = this.ensure(peerUserId);
     const message = this.make(text, false, at);
+    if (envelopeId) message.envelopeId = envelopeId;
     if (verdict) message.verdict = verdict;
     conv.messages = [...conv.messages, message];
     conv.unread += 1;

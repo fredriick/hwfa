@@ -72,3 +72,18 @@ func (h *Hub) route(env Envelope) string {
 	}
 	return env.ID
 }
+
+// forwardStatus delivers a delivery/read status update to the original sender
+// if they are currently connected. Status is best-effort: unlike envelopes it
+// is not queued for offline senders (the client re-derives it on reconnect via
+// re-delivery / re-reads in a fuller implementation).
+func (h *Hub) forwardStatus(userID string, deviceID int, msg RelayMessage) {
+	key := routeKey(userID, deviceID)
+	h.mu.Lock()
+	target := h.conns[key]
+	h.mu.Unlock()
+	if target != nil {
+		target.send(msg)
+		log.Printf("status %s (%s) -> %s", msg.EnvelopeID, msg.Status, key)
+	}
+}

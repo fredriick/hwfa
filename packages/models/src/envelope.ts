@@ -37,10 +37,19 @@ export interface Envelope {
   timestamp: number;
 }
 
+/**
+ * Lifecycle of an outbound message, from the sender's point of view.
+ * sending → sent (relay accepted) → delivered (recipient device got it) →
+ * read (recipient opened the conversation).
+ */
+export type MessageStatus = "sending" | "sent" | "delivered" | "read";
+
 /** Client → relay: submit an envelope for routing. */
 export interface SendEnvelopeRequest {
   kind: "send";
   envelope: Omit<Envelope, "id">;
+  /** Sender-generated correlation id, echoed back in the ack (never delivered). */
+  clientRef?: string;
 }
 
 /** Relay → recipient client: deliver a queued/live envelope. */
@@ -54,12 +63,30 @@ export interface EnvelopeAckMessage {
   kind: "ack";
   envelopeId: string;
   acceptedAt: number;
+  /** Echo of the sender's clientRef, so it can mark that message "sent". */
+  clientRef?: string;
 }
 
-/** Client → relay: acknowledge successful receipt so the relay can drop it. */
+/**
+ * Client → relay: a receipt for a received message. Drops the relay's stored
+ * copy and (via `targetId`/`targetDevice`) asks the relay to forward a status
+ * update back to the original sender. `status` is "delivered" (auto, on receive)
+ * or "read" (when the recipient opens the conversation).
+ */
 export interface DeliveryReceiptMessage {
   kind: "receipt";
   envelopeId: string;
+  status: "delivered" | "read";
+  /** The original sender (the receipt's destination). */
+  targetId: string;
+  targetDevice: number;
+}
+
+/** Relay → original sender: the recipient's status update for a message. */
+export interface MessageStatusMessage {
+  kind: "status";
+  envelopeId: string;
+  status: "delivered" | "read";
 }
 
 /** Any message that can travel over the relay WebSocket. */
@@ -67,4 +94,5 @@ export type RelayMessage =
   | SendEnvelopeRequest
   | DeliverEnvelopeMessage
   | EnvelopeAckMessage
-  | DeliveryReceiptMessage;
+  | DeliveryReceiptMessage
+  | MessageStatusMessage;

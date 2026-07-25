@@ -6,7 +6,7 @@
  * the experimental global) passes the `ws` package's constructor. The relay only
  * ever sees opaque `Envelope`s — this class does no crypto.
  */
-import type { Envelope, RelayMessage } from "@hwfa/models";
+import type { Envelope, MessageStatus, RelayMessage } from "@hwfa/models";
 
 /** Minimal structural type for a WebSocket instance (works for `ws` + DOM). */
 export interface WebSocketLike {
@@ -21,6 +21,16 @@ export interface WebSocketCtor {
 }
 
 export type DeliverHandler = (envelope: Envelope) => void;
+/** Called when the relay acks a submitted message (maps clientRef → server id). */
+export type AckHandler = (clientRef: string | undefined, envelopeId: string) => void;
+/** Called when the recipient reports a delivered/read status for our message. */
+export type StatusHandler = (envelopeId: string, status: MessageStatus) => void;
+
+export interface RelayHandlers {
+  onDeliver: DeliverHandler;
+  onAck?: AckHandler;
+  onStatus?: StatusHandler;
+}
 
 export class RelayConnection {
   private ws: WebSocketLike | null = null;
@@ -30,7 +40,7 @@ export class RelayConnection {
     private readonly userId: string,
     private readonly deviceId: number,
     private readonly webSocketCtor: WebSocketCtor,
-    private readonly onDeliver: DeliverHandler,
+    private readonly handlers: RelayHandlers,
   ) {}
 
   connect(): Promise<void> {
@@ -42,9 +52,19 @@ export class RelayConnection {
       const raw = typeof ev === "string" ? ev : ev?.data ?? ev;
       const msg = JSON.parse(String(raw)) as RelayMessage;
       if (msg.kind === "deliver" && msg.envelope) {
-        this.onDeliver(msg.envelope);
-        // Acknowledge so the relay can drop the stored copy.
-        this.send({ kind: "receipt", envelopeId: msg.envelope.id });
+        this.handlers.onDeliver(msg.envelope);
+        // Confirm delivery: drops the relay's stored copy AND tells the sender.
+        this.send({
+          kind: "receipt",
+          envelopeId: msg.envelope.id,
+          status: "delivered",
+          targetId: msg.envelope.senderId,
+          targetDevice: msg.envelope.senderDevice,
+        });
+      } else if (msg.kind === "ack") {
+        this.handlers.onAck?.(msg.clientRef, msg.envelopeId);
+      } else if (msg.kind === "status") {
+        this.handlers.onStatus?.(msg.envelopeId, msg.status);
       }
     });
 
@@ -54,9 +74,14 @@ export class RelayConnection {
     });
   }
 
-  /** Submit an envelope (server assigns its id). */
-  sendEnvelope(envelope: Omit<Envelope, "id">): void {
-    this.send({ kind: "send", envelope });
+  /** Submit an envelope (server assigns its id); clientRef correlates the ack. */
+  sendEnvelope(envelope: Omit<Envelope, "id">, clientRef?: string): void {
+    this.send({ kind: "send", envelope, clientRef });
+  }
+
+  /** Send a read receipt for a received message back to its sender. */
+  sendReadReceipt(envelopeId: string, targetId: string, targetDevice: number): void {
+    this.send({ kind: "receipt", envelopeId, status: "read", targetId, targetDevice });
   }
 
   send(msg: RelayMessage): void {

@@ -15,7 +15,14 @@ export type {
 export { DiscoveryClient, DiscoveryError } from "./discovery.js";
 export type { ContactMatch, FetchLike } from "./discovery.js";
 export { RelayConnection } from "./relay.js";
-export type { WebSocketCtor, WebSocketLike, DeliverHandler } from "./relay.js";
+export type {
+  WebSocketCtor,
+  WebSocketLike,
+  DeliverHandler,
+  AckHandler,
+  StatusHandler,
+  RelayHandlers,
+} from "./relay.js";
 export type {
   CryptoProvider,
   GenerateRegistrationOptions,

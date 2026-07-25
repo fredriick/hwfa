@@ -16,10 +16,19 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SCAM_CATEGORY_LABELS } from '@hwfa/models';
+import { SCAM_CATEGORY_LABELS, type MessageStatus } from '@hwfa/models';
 import { conversationStore, useMessages, type ChatMessage } from '../store/conversations';
 import { formatClock } from '../util/time';
 import { theme } from '../theme';
+
+/** Delivery ticks for an outbound message: ✓ sent, ✓✓ delivered, ✓✓ (blue) read. */
+function StatusTicks({ status }: { status?: MessageStatus }): React.JSX.Element | null {
+  if (!status) return null;
+  if (status === 'sending') return <Text style={styles.tick}>🕓</Text>;
+  const read = status === 'read';
+  const glyph = status === 'sent' ? '✓' : '✓✓';
+  return <Text style={[styles.tick, read && styles.tickRead]}>{glyph}</Text>;
+}
 
 /** Inline scam warning shown above a flagged inbound message (not a modal). */
 function ScamWarning({
@@ -106,7 +115,10 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
               )}
               <View style={[styles.bubble, item.mine ? styles.out : styles.in]}>
                 <Text style={styles.bubbleText}>{item.text}</Text>
-                <Text style={styles.time}>{formatClock(item.at)}</Text>
+                <View style={styles.meta}>
+                  <Text style={styles.time}>{formatClock(item.at)}</Text>
+                  {item.mine && <StatusTicks status={item.status} />}
+                </View>
               </View>
             </View>
           );
@@ -151,7 +163,10 @@ const styles = StyleSheet.create({
   out: { alignSelf: 'flex-end', backgroundColor: theme.bubbleOut },
   in: { alignSelf: 'flex-start', backgroundColor: theme.bubbleIn },
   bubbleText: { color: theme.text, fontSize: 15 },
-  time: { color: theme.textDim, fontSize: 10, alignSelf: 'flex-end', marginTop: 2 },
+  meta: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', gap: 4, marginTop: 2 },
+  time: { color: theme.textDim, fontSize: 10 },
+  tick: { color: theme.textDim, fontSize: 11 },
+  tickRead: { color: '#53bdeb' },
   warning: {
     alignSelf: 'flex-start',
     maxWidth: '90%',

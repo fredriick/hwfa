@@ -6,7 +6,7 @@
  * All key material stays inside the injected `CryptoProvider`; this class only
  * moves ids, ciphertext, and plaintext between the provider and the network.
  */
-import type { Envelope, ScamVerdict } from "@hwfa/models";
+import type { Envelope, MessageStatus, ScamVerdict } from "@hwfa/models";
 import { DiscoveryClient, type FetchLike } from "./discovery.js";
 import { RelayConnection, type WebSocketCtor } from "./relay.js";
 import type { CryptoProvider } from "./crypto-provider.js";
@@ -34,11 +34,21 @@ export interface IncomingText {
   fromDevice: number;
   text: string;
   receivedAt: number;
+  /** Server envelope id — used to send a read receipt for this message. */
+  envelopeId: string;
   /** On-device scam-detection verdict over the decrypted text. */
   verdict: ScamVerdict;
 }
 
 export type TextHandler = (msg: IncomingText) => void;
+
+/** An outbound message's status change, keyed by the sender's clientRef. */
+export interface MessageStatusUpdate {
+  clientRef: string;
+  status: MessageStatus;
+}
+
+export type MessageStatusHandler = (update: MessageStatusUpdate) => void;
 
 export class HwfaClient {
   private readonly discovery: DiscoveryClient;
@@ -54,6 +64,11 @@ export class HwfaClient {
   /** Peers we already have an outbound session with, and their device id. */
   private readonly peerDevice = new Map<string, number>();
   private readonly textHandlers: TextHandler[] = [];
+  private readonly statusHandlers: MessageStatusHandler[] = [];
+
+  /** clientRef ↔ server envelope id, so status updates map back to a message. */
+  private readonly refToEnvelope = new Map<string, string>();
+  private readonly envelopeToRef = new Map<string, string>();
 
   constructor(opts: HwfaClientOptions) {
     this.discovery = new DiscoveryClient(opts.discoveryUrl, opts.fetchImpl ?? fetch);
@@ -106,7 +121,11 @@ export class HwfaClient {
       this.userId,
       this.deviceId,
       this.webSocketCtor,
-      (env) => void this.handleDeliver(env),
+      {
+        onDeliver: (env) => void this.handleDeliver(env),
+        onAck: (clientRef, envelopeId) => this.handleAck(clientRef, envelopeId),
+        onStatus: (envelopeId, status) => this.handleStatus(envelopeId, status),
+      },
     );
     await this.relay.connect();
   }
@@ -119,24 +138,45 @@ export class HwfaClient {
     return matches[0]?.userId ?? null;
   }
 
-  /** Encrypt and send a text to a peer, establishing a session on first use. */
-  async sendText(peerUserId: string, text: string): Promise<void> {
+  /**
+   * Encrypt and send a text to a peer, establishing a session on first use.
+   * Returns a `clientRef` that correlates later status updates (sent →
+   * delivered → read) back to this message; pass one in to reuse your own id.
+   */
+  async sendText(peerUserId: string, text: string, clientRef?: string): Promise<string> {
     if (!this.relay || !this.userId) throw new Error("not connected");
+    const ref = clientRef ?? newClientRef();
     const peerDevice = await this.ensureSession(peerUserId);
     const enc = await this.crypto.encrypt(peerUserId, peerDevice, text);
-    this.relay.sendEnvelope({
-      recipientId: peerUserId,
-      recipientDevice: peerDevice,
-      senderId: this.userId, // relay overrides with the authenticated value
-      senderDevice: this.deviceId,
-      type: enc.type,
-      ciphertext: enc.ciphertextB64,
-      timestamp: Date.now(),
-    });
+    this.relay.sendEnvelope(
+      {
+        recipientId: peerUserId,
+        recipientDevice: peerDevice,
+        senderId: this.userId, // relay overrides with the authenticated value
+        senderDevice: this.deviceId,
+        type: enc.type,
+        ciphertext: enc.ciphertextB64,
+        timestamp: Date.now(),
+      },
+      ref,
+    );
+    return ref;
+  }
+
+  /** Acknowledge a received message as read, notifying its sender. */
+  sendReadReceipt(peerUserId: string, envelopeId: string): void {
+    if (!this.relay) return;
+    const device = this.peerDevice.get(peerUserId) ?? 1;
+    this.relay.sendReadReceipt(envelopeId, peerUserId, device);
   }
 
   onText(handler: TextHandler): void {
     this.textHandlers.push(handler);
+  }
+
+  /** Subscribe to outbound message status changes (sent/delivered/read). */
+  onMessageStatus(handler: MessageStatusHandler): void {
+    this.statusHandlers.push(handler);
   }
 
   close(): void {
@@ -174,10 +214,34 @@ export class HwfaClient {
       fromDevice: env.senderDevice,
       text,
       receivedAt: Date.now(),
+      envelopeId: env.id,
       verdict,
     };
     for (const handler of this.textHandlers) handler(msg);
   }
+
+  /** Relay accepted our message: correlate clientRef ↔ envelope, mark "sent". */
+  private handleAck(clientRef: string | undefined, envelopeId: string): void {
+    if (!clientRef) return;
+    this.refToEnvelope.set(clientRef, envelopeId);
+    this.envelopeToRef.set(envelopeId, clientRef);
+    this.emitStatus(clientRef, "sent");
+  }
+
+  /** Recipient reported delivered/read for one of our messages. */
+  private handleStatus(envelopeId: string, status: MessageStatus): void {
+    const clientRef = this.envelopeToRef.get(envelopeId);
+    if (clientRef) this.emitStatus(clientRef, status);
+  }
+
+  private emitStatus(clientRef: string, status: MessageStatus): void {
+    for (const handler of this.statusHandlers) handler({ clientRef, status });
+  }
+}
+
+/** A short, collision-resistant correlation id for an outbound message. */
+function newClientRef(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 /**

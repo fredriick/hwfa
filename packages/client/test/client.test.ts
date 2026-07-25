@@ -16,7 +16,7 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
-import { HwfaClient } from "../src/index.js";
+import { HwfaClient, type IncomingText } from "../src/index.js";
 import { NodeCryptoProvider } from "../src/node/index.js";
 
 const RELAY_PORT = 8092;
@@ -99,10 +99,12 @@ test("HwfaClient: onboard, discover, and exchange E2EE texts through the real se
   const alice = new HwfaClient({ ...opts, crypto: new NodeCryptoProvider() });
   const bob = new HwfaClient({ ...opts, crypto: new NodeCryptoProvider() });
 
-  const bobInbox: string[] = [];
-  const aliceInbox: string[] = [];
-  bob.onText((m) => bobInbox.push(m.text));
-  alice.onText((m) => aliceInbox.push(m.text));
+  const bobInbox: IncomingText[] = [];
+  const aliceInbox: IncomingText[] = [];
+  bob.onText((m) => bobInbox.push(m));
+  alice.onText((m) => aliceInbox.push(m));
+  const aliceStatus = new Map<string, string>();
+  alice.onMessageStatus((u) => aliceStatus.set(u.clientRef, u.status));
 
   t.after(() => {
     alice.close();
@@ -123,12 +125,21 @@ test("HwfaClient: onboard, discover, and exchange E2EE texts through the real se
   assert.equal(stranger, null, "an unregistered number resolves to nobody");
 
   // 3) Alice → Bob, E2EE through the relay.
-  await alice.sendText(bobId, "Hello from the client core 🔐");
+  const ref1 = await alice.sendText(bobId, "Hello from the client core 🔐");
   await until(() => bobInbox.length === 1);
-  assert.equal(bobInbox[0], "Hello from the client core 🔐", "Bob decrypts Alice's message");
+  assert.equal(bobInbox[0]!.text, "Hello from the client core 🔐", "Bob decrypts Alice's message");
+
+  // 3a) Receipts: Bob's client auto-confirms delivery; Alice sees "delivered".
+  await until(() => aliceStatus.get(ref1) === "delivered");
+  assert.equal(aliceStatus.get(ref1), "delivered", "Alice sees Bob's delivery receipt");
+
+  // 3b) Bob reads the message → Alice sees "read".
+  bob.sendReadReceipt(bobInbox[0]!.fromUserId, bobInbox[0]!.envelopeId);
+  await until(() => aliceStatus.get(ref1) === "read");
+  assert.equal(aliceStatus.get(ref1), "read", "Alice sees Bob's read receipt");
 
   // 4) Bob → Alice reply (bidirectional ratchet), no fresh bundle fetch needed.
   await bob.sendText(aliceId, "Got it, ratchet works ✅");
   await until(() => aliceInbox.length === 1);
-  assert.equal(aliceInbox[0], "Got it, ratchet works ✅", "Alice decrypts Bob's reply");
+  assert.equal(aliceInbox[0]!.text, "Got it, ratchet works ✅", "Alice decrypts Bob's reply");
 });

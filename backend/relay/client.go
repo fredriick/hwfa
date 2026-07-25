@@ -78,11 +78,19 @@ func (c *Client) readPump() {
 			env.SenderID = c.userID
 			env.SenderDevice = c.deviceID
 			id := c.hub.route(env)
-			c.send(RelayMessage{Kind: "ack", EnvelopeID: id, AcceptedAt: nowMillis()})
+			c.send(RelayMessage{Kind: "ack", EnvelopeID: id, AcceptedAt: nowMillis(), ClientRef: msg.ClientRef})
 		case "receipt":
-			// Delivery confirmed by recipient; in production this deletes the row
-			// from the Postgres message_queue. In-memory queue already dropped it
-			// on delivery, so this is a no-op for the spike.
+			// The recipient confirmed delivery/read. In production this also
+			// deletes the row from the Postgres message_queue; the in-memory
+			// queue already dropped it on delivery. Forward the status back to
+			// the original sender (best-effort — dropped if they're offline).
+			if msg.TargetID != "" && (msg.Status == "delivered" || msg.Status == "read") {
+				c.hub.forwardStatus(msg.TargetID, msg.TargetDevice, RelayMessage{
+					Kind:       "status",
+					EnvelopeID: msg.EnvelopeID,
+					Status:     msg.Status,
+				})
+			}
 		default:
 			log.Printf("ignoring message kind %q from %s", msg.Kind, c.routeKey)
 		}

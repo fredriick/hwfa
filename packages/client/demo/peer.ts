@@ -54,6 +54,9 @@ async function main(): Promise<void> {
     if (activePeer === null) activePeer = m.fromUserId; // auto-reply target
     const short = m.fromUserId.slice(0, 8);
     log(`\x1b[36m${short}…\x1b[0m ${m.text}`);
+    // Printing counts as "read" here — send a read receipt so the sender's
+    // client shows ✓✓ (read).
+    client.sendReadReceipt(m.fromUserId, m.envelopeId);
   });
 
   process.stdout.write(`Onboarding ${myPhone} …\n`);

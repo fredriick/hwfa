@@ -17,14 +17,20 @@ type Envelope struct {
 // RelayMessage is the tagged-union wire protocol over the WebSocket. Only the
 // fields relevant to `Kind` are populated. Mirrors the TS `RelayMessage`.
 type RelayMessage struct {
-	Kind string `json:"kind"` // "send" | "deliver" | "ack" | "receipt"
+	Kind string `json:"kind"` // "send" | "deliver" | "ack" | "receipt" | "status"
 
 	// send / deliver
 	Envelope *Envelope `json:"envelope,omitempty"`
 
-	// ack
+	// ack / receipt / status
 	EnvelopeID string `json:"envelopeId,omitempty"`
 	AcceptedAt int64  `json:"acceptedAt,omitempty"`
+	ClientRef  string `json:"clientRef,omitempty"` // send → echoed in ack
+
+	// receipt: where to forward the status; status: the value forwarded
+	Status       string `json:"status,omitempty"` // "delivered" | "read"
+	TargetID     string `json:"targetId,omitempty"`
+	TargetDevice int    `json:"targetDevice,omitempty"`
 }
 
 // routeKey identifies a specific recipient device — the routing granularity,
