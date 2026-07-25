@@ -1,6 +1,10 @@
 package com.hwfamobile.crypto
 
+import android.content.Context
+import android.content.SharedPreferences
 import android.util.Base64
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKeys
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -24,7 +28,6 @@ import org.signal.libsignal.protocol.state.KyberPreKeyRecord
 import org.signal.libsignal.protocol.state.PreKeyBundle
 import org.signal.libsignal.protocol.state.PreKeyRecord
 import org.signal.libsignal.protocol.state.SignedPreKeyRecord
-import org.signal.libsignal.protocol.state.impl.InMemorySignalProtocolStore
 import java.util.Random
 
 /**
@@ -36,9 +39,12 @@ import java.util.Random
  * `@signalapp/libsignal-client`, so key bundles and ciphertext are byte-for-byte
  * compatible with the backend and the headless tests (Kyber PQXDH included).
  *
- * Phase 1: keys + ratchet state live in an in-memory store, exactly like the
- * spikes. Production must persist the store to SQLCipher and the identity key to
- * the Android Keystore.
+ * Persistence: keys + ratchet state live in a PersistentSignalProtocolStore
+ * backed by EncryptedSharedPreferences (master key in the Android Keystore), so
+ * the identity + sessions survive an app restart and the account stays stable.
+ * The Discovery account id / phone are persisted alongside so the app can resume
+ * the relay without re-onboarding. (SQLCipher + PIN/biometric derivation is the
+ * later hardening step.)
  *
  * LICENSING: libsignal-android is AGPL-3.0. Shipping it makes this app subject
  * to the AGPL. Resolve that (open-source the client, or a different arrangement)
@@ -47,15 +53,16 @@ import java.util.Random
 class HwfaCryptoModule(reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
 
-  private var store: InMemorySignalProtocolStore? = null
-  private var localDeviceId: Int = 1
+  private val prefs: SharedPreferences = buildEncryptedPrefs(reactContext)
+  private var store: PersistentSignalProtocolStore? = PersistentSignalProtocolStore.load(prefs)
+  private var localDeviceId: Int = prefs.getInt(ACCOUNT_DEVICE, 1)
 
   override fun getName(): String = "HwfaCrypto"
 
   private fun b64(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.NO_WRAP)
   private fun unb64(s: String): ByteArray = Base64.decode(s, Base64.NO_WRAP)
 
-  private fun requireStore(): InMemorySignalProtocolStore =
+  private fun requireStore(): PersistentSignalProtocolStore =
     store ?: throw IllegalStateException("generateRegistration() must run before this call")
 
   /** Mint identity + prekeys, seed the store, and return the publishable bundle. */
@@ -64,7 +71,8 @@ class HwfaCryptoModule(reactContext: ReactApplicationContext) :
     try {
       val identityKeyPair = IdentityKeyPair.generate()
       val registrationId = 1 + Random().nextInt(16380) // 14-bit, matches the TS core
-      val s = InMemorySignalProtocolStore(identityKeyPair, registrationId)
+      // Fresh identity: clears any prior account's persisted state.
+      val s = PersistentSignalProtocolStore.create(prefs, identityKeyPair, registrationId)
       store = s
       localDeviceId = if (deviceId > 0) deviceId else 1
 
@@ -194,6 +202,79 @@ class HwfaCryptoModule(reactContext: ReactApplicationContext) :
       promise.resolve(String(plaintext, Charsets.UTF_8))
     } catch (e: Exception) {
       promise.reject("decrypt", e)
+    }
+  }
+
+  // --- account resume: remember the Discovery identity across restarts ---
+
+  /** True once an account has been onboarded and persisted on this device. */
+  @ReactMethod
+  fun isRegistered(promise: Promise) {
+    promise.resolve(store != null && prefs.contains(ACCOUNT_ID))
+  }
+
+  /** Persist the Discovery-assigned account id + phone after onboarding. */
+  @ReactMethod
+  fun saveAccount(accountId: String, phone: String, promise: Promise) {
+    try {
+      prefs.edit()
+        .putString(ACCOUNT_ID, accountId)
+        .putString(ACCOUNT_PHONE, phone)
+        .putInt(ACCOUNT_DEVICE, localDeviceId)
+        .apply()
+      promise.resolve(null)
+    } catch (e: Exception) {
+      promise.reject("saveAccount", e)
+    }
+  }
+
+  /** Load the saved account for a resume, or null if none / no key material. */
+  @ReactMethod
+  fun loadAccount(promise: Promise) {
+    try {
+      val accountId = prefs.getString(ACCOUNT_ID, null)
+      if (accountId == null || store == null) {
+        promise.resolve(null)
+        return
+      }
+      val result = Arguments.createMap()
+      result.putString("accountId", accountId)
+      result.putInt("deviceId", prefs.getInt(ACCOUNT_DEVICE, localDeviceId))
+      result.putString("phone", prefs.getString(ACCOUNT_PHONE, "") ?: "")
+      promise.resolve(result)
+    } catch (e: Exception) {
+      promise.reject("loadAccount", e)
+    }
+  }
+
+  /** Wipe all key material + account state (logout / start over). */
+  @ReactMethod
+  fun reset(promise: Promise) {
+    try {
+      prefs.edit().clear().apply()
+      store = null
+      localDeviceId = 1
+      promise.resolve(null)
+    } catch (e: Exception) {
+      promise.reject("reset", e)
+    }
+  }
+
+  companion object {
+    private const val ACCOUNT_ID = "account:id"
+    private const val ACCOUNT_PHONE = "account:phone"
+    private const val ACCOUNT_DEVICE = "account:device"
+
+    /** EncryptedSharedPreferences with the master key held in the Android Keystore. */
+    private fun buildEncryptedPrefs(context: Context): SharedPreferences {
+      val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+      return EncryptedSharedPreferences.create(
+        "hwfa_signal_store",
+        masterKeyAlias,
+        context.applicationContext,
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+      )
     }
   }
 }

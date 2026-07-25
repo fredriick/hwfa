@@ -78,6 +78,18 @@ export class HwfaClient {
     return userId;
   }
 
+  /**
+   * Resume a previously onboarded identity (persisted account id + device) and
+   * reconnect the relay — no re-registration. The crypto provider must already
+   * hold the persisted key material (e.g. the RN native store loads it on init).
+   */
+  async resume(userId: string, deviceId: number): Promise<string> {
+    this.userId = userId;
+    this.deviceId = deviceId > 0 ? deviceId : 1;
+    await this.connectRelay();
+    return userId;
+  }
+
   /** Open (or reuse) the relay socket under our onboarded identity. */
   async connectRelay(): Promise<void> {
     if (!this.userId) throw new Error("onboard() before connecting the relay");

@@ -14,7 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { getClient } from '../client/hwfaClient';
+import { getClient, saveAccount } from '../client/hwfaClient';
 import { theme } from '../theme';
 
 interface Props {
@@ -30,7 +30,10 @@ export function OnboardingScreen({ onOnboarded }: Props): React.JSX.Element {
     setBusy(true);
     setError(null);
     try {
-      const userId = await getClient().onboard(phone.trim());
+      const trimmed = phone.trim();
+      const userId = await getClient().onboard(trimmed);
+      // Remember this identity so the next launch resumes instead of re-registering.
+      await saveAccount(userId, trimmed);
       onOnboarded(userId);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

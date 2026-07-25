@@ -29,6 +29,19 @@ export interface NativeHwfaCryptoSpec {
     type: number,
     ciphertextB64: string,
   ): Promise<string>;
+
+  /** Resume support — the native store persists identity + the account id. */
+  isRegistered(): Promise<boolean>;
+  saveAccount(accountId: string, phone: string): Promise<null>;
+  loadAccount(): Promise<SavedAccount | null>;
+  reset(): Promise<null>;
+}
+
+/** A previously onboarded identity, persisted on-device for resume. */
+export interface SavedAccount {
+  accountId: string;
+  deviceId: number;
+  phone: string;
 }
 
 const native = NativeModules.HwfaCrypto as NativeHwfaCryptoSpec | undefined;

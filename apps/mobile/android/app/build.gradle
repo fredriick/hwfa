@@ -121,6 +121,10 @@ dependencies {
     implementation("org.signal:libsignal-android:0.73.0")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 
+    // EncryptedSharedPreferences (master key in the Android Keystore) — the
+    // at-rest store for the persistent Signal identity/session state.
+    implementation("androidx.security:security-crypto:1.0.0")
+
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
     } else {
