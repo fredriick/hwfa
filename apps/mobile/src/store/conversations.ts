@@ -179,9 +179,15 @@ class ConversationStore {
         counter: this.counter,
         conversations: [...this.convs.values()],
       };
-      void saveMessages(JSON.stringify(state)).catch(() => {
-        /* best-effort; retried on the next mutation */
-      });
+      try {
+        // Guard the synchronous path too: an old native build without
+        // saveMessages would otherwise throw out of this timer and crash.
+        void Promise.resolve(saveMessages(JSON.stringify(state))).catch(() => {
+          /* best-effort; retried on the next mutation */
+        });
+      } catch {
+        /* native method missing (stale build) — skip persistence this tick */
+      }
     }, 300);
   }
 }
