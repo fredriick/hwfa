@@ -11,9 +11,11 @@ All commands run from the repo root. Node ≥ 22 required.
 
 ## 1. Start the backend
 
-Relay on `:8090`, Discovery on `:8091` — the ports the app expects
+Relay on `:8190`, Discovery on `:8091` — the ports the app expects
 (`apps/mobile/src/config.ts`; the Android emulator reaches the host at
-`10.0.2.2`).
+`10.0.2.2`). The relay uses 8190 rather than 8090 because a Wondershare
+"NativePush" helper respawns onto IPv4 8090 on some machines and steals the
+socket.
 
 ```
 npm run demo:backend -w @hwfa/client

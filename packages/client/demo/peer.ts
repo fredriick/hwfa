@@ -28,7 +28,7 @@ import { NodeCryptoProvider } from "../src/node/index.js";
 
 const myPhone = process.argv[2] ?? "+2348030000001";
 const discoveryUrl = process.argv[3] ?? "http://localhost:8091";
-const relayUrl = process.argv[4] ?? "ws://localhost:8090/v1/relay";
+const relayUrl = process.argv[4] ?? "ws://localhost:8190/v1/relay";
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 

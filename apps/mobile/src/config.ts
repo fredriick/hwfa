@@ -10,8 +10,12 @@ import { Platform } from "react-native";
 
 const HOST = Platform.OS === "android" ? "10.0.2.2" : "localhost";
 
-/** Relay + Discovery ports, matching backend/relay and backend/discovery. */
-const RELAY_PORT = 8090;
+/**
+ * Relay + Discovery ports, matching backend/relay and backend/discovery.
+ * Relay is on 8190 (not 8090) to dodge a Wondershare "NativePush" helper that
+ * respawns onto IPv4 8090 on this machine and steals the socket.
+ */
+const RELAY_PORT = 8190;
 const DISCOVERY_PORT = 8091;
 
 export const config = {

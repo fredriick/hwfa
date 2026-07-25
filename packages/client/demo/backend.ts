@@ -15,7 +15,7 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
-const RELAY_PORT = 8090;
+const RELAY_PORT = 8190; // 8090 is squatted by a Wondershare helper on some machines
 const DISCOVERY_PORT = 8091;
 
 const here = path.dirname(fileURLToPath(import.meta.url));

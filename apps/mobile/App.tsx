@@ -10,14 +10,17 @@ import React, { useState } from 'react';
 import { StatusBar, StyleSheet } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
+import { ConversationsScreen } from './src/screens/ConversationsScreen';
 import { ContactsScreen } from './src/screens/ContactsScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
+import { conversationStore } from './src/store/conversations';
 import { theme } from './src/theme';
 
 type Screen =
   | { name: 'onboarding' }
+  | { name: 'home' }
   | { name: 'contacts' }
-  | { name: 'chat'; peerUserId: string; peerPhone: string };
+  | { name: 'chat'; peerUserId: string; peerPhone?: string };
 
 function App(): React.JSX.Element {
   const [userId, setUserId] = useState<string | null>(null);
@@ -31,14 +34,27 @@ function App(): React.JSX.Element {
           <OnboardingScreen
             onOnboarded={id => {
               setUserId(id);
-              setScreen({ name: 'contacts' });
+              // Start the single app-level inbound handler once we're online.
+              conversationStore.start();
+              setScreen({ name: 'home' });
             }}
+          />
+        )}
+
+        {screen.name === 'home' && userId && (
+          <ConversationsScreen
+            myUserId={userId}
+            onNewChat={() => setScreen({ name: 'contacts' })}
+            onOpenChat={(peerUserId, peerPhone) =>
+              setScreen({ name: 'chat', peerUserId, peerPhone })
+            }
           />
         )}
 
         {screen.name === 'contacts' && userId && (
           <ContactsScreen
             myUserId={userId}
+            onBack={() => setScreen({ name: 'home' })}
             onOpenChat={(peerUserId, peerPhone) =>
               setScreen({ name: 'chat', peerUserId, peerPhone })
             }
@@ -49,7 +65,7 @@ function App(): React.JSX.Element {
           <ChatScreen
             peerUserId={screen.peerUserId}
             peerPhone={screen.peerPhone}
-            onBack={() => setScreen({ name: 'contacts' })}
+            onBack={() => setScreen({ name: 'home' })}
           />
         )}
       </SafeAreaView>

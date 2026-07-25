@@ -14,14 +14,16 @@ import {
   View,
 } from 'react-native';
 import { getClient } from '../client/hwfaClient';
+import { conversationStore } from '../store/conversations';
 import { theme } from '../theme';
 
 interface Props {
   myUserId: string;
   onOpenChat: (peerUserId: string, peerPhone: string) => void;
+  onBack: () => void;
 }
 
-export function ContactsScreen({ myUserId, onOpenChat }: Props): React.JSX.Element {
+export function ContactsScreen({ myUserId, onOpenChat, onBack }: Props): React.JSX.Element {
   const [phone, setPhone] = useState('+234');
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -32,6 +34,7 @@ export function ContactsScreen({ myUserId, onOpenChat }: Props): React.JSX.Eleme
     try {
       const peerId = await getClient().findContact(phone.trim());
       if (peerId) {
+        conversationStore.ensurePeer(peerId, phone.trim());
         onOpenChat(peerId, phone.trim());
       } else {
         setStatus('No Hwfa account is registered for that number.');
@@ -45,7 +48,12 @@ export function ContactsScreen({ myUserId, onOpenChat }: Props): React.JSX.Eleme
 
   return (
     <View style={styles.container}>
-      <Text style={styles.heading}>New chat</Text>
+      <View style={styles.topBar}>
+        <TouchableOpacity onPress={onBack}>
+          <Text style={styles.back}>‹</Text>
+        </TouchableOpacity>
+        <Text style={styles.heading}>New chat</Text>
+      </View>
       <Text style={styles.you}>You are {myUserId.slice(0, 8)}…</Text>
 
       <Text style={styles.label}>Contact's phone number</Text>
@@ -76,7 +84,9 @@ export function ContactsScreen({ myUserId, onOpenChat }: Props): React.JSX.Eleme
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.bg, padding: 24 },
-  heading: { color: theme.text, fontSize: 26, fontWeight: '700', marginTop: 12 },
+  topBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
+  back: { color: theme.text, fontSize: 34, lineHeight: 34, marginRight: 4 },
+  heading: { color: theme.text, fontSize: 26, fontWeight: '700' },
   you: { color: theme.textDim, marginTop: 4, marginBottom: 32 },
   label: { color: theme.textDim, marginBottom: 8 },
   input: {

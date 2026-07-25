@@ -1,10 +1,11 @@
 /**
- * ChatScreen — a 1:1 conversation. Outbound text is encrypted and sent through
- * the relay by `@hwfa/client`; inbound text arrives decrypted via `onText`.
- * Messages are held in component state only (Phase 1 scaffold) — SQLCipher
- * persistence is the next step.
+ * ChatScreen — a 1:1 conversation. Messages live in the app-level conversation
+ * store (so inbound arrives whether or not this screen is open); this component
+ * just renders the thread and sends. Outbound text is encrypted and sent through
+ * the relay by `@hwfa/client`; inbound is decrypted upstream and fanned into the
+ * store's per-peer inbox.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -15,47 +16,32 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { getClient } from '../client/hwfaClient';
+import { conversationStore, useMessages } from '../store/conversations';
 import { theme } from '../theme';
 
 interface Props {
   peerUserId: string;
-  peerPhone: string;
+  peerPhone?: string;
   onBack: () => void;
 }
 
-interface ChatMessage {
-  id: string;
-  text: string;
-  mine: boolean;
-}
-
 export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.Element {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const messages = useMessages(peerUserId);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const counter = useRef(0);
 
-  const nextId = () => `m${counter.current++}`;
-
+  // Opening the thread clears its unread badge.
   useEffect(() => {
-    // Deliver inbound texts from this peer into the list.
-    getClient().onText(msg => {
-      if (msg.fromUserId !== peerUserId) return;
-      setMessages(prev => [...prev, { id: nextId(), text: msg.text, mine: false }]);
-    });
-    // Note: onText handlers accumulate for the app's lifetime in this scaffold;
-    // a real unsubscribe belongs on the client API before production.
-  }, [peerUserId]);
+    conversationStore.markRead(peerUserId);
+  }, [peerUserId, messages.length]);
 
   async function handleSend() {
     const text = draft.trim();
     if (!text) return;
     setDraft('');
     setError(null);
-    setMessages(prev => [...prev, { id: nextId(), text, mine: true }]);
     try {
-      await getClient().sendText(peerUserId, text);
+      await conversationStore.send(peerUserId, text);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -70,7 +56,7 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
           <Text style={styles.back}>‹</Text>
         </TouchableOpacity>
         <View>
-          <Text style={styles.peer}>{peerPhone}</Text>
+          <Text style={styles.peer}>{peerPhone ?? `${peerUserId.slice(0, 8)}…`}</Text>
           <Text style={styles.peerId}>{peerUserId.slice(0, 8)}…</Text>
         </View>
       </View>
