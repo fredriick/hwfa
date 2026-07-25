@@ -11,7 +11,9 @@
   },
   "scripts": {
     "test": "node --test --import tsx ./test/client.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "demo:peer": "node --import tsx ./demo/peer.ts",
+    "demo:backend": "node --import tsx ./demo/backend.ts"
   },
   "dependencies": {
     "@hwfa/models": "*",
