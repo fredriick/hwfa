@@ -6,10 +6,11 @@
  * All key material stays inside the injected `CryptoProvider`; this class only
  * moves ids, ciphertext, and plaintext between the provider and the network.
  */
-import type { Envelope } from "@hwfa/models";
+import type { Envelope, ScamVerdict } from "@hwfa/models";
 import { DiscoveryClient, type FetchLike } from "./discovery.js";
 import { RelayConnection, type WebSocketCtor } from "./relay.js";
 import type { CryptoProvider } from "./crypto-provider.js";
+import { heuristicScamDetector, type ScamDetector } from "./scam/detector.js";
 import { sha256 } from "./sha256.js";
 
 export interface HwfaClientOptions {
@@ -23,6 +24,8 @@ export interface HwfaClientOptions {
   webSocketCtor: WebSocketCtor;
   /** Override fetch (defaults to the global). */
   fetchImpl?: FetchLike;
+  /** On-device scam detector (defaults to the heuristic Tier-0 detector). */
+  scamDetector?: ScamDetector;
 }
 
 /** A decrypted inbound text handed to the app. */
@@ -31,6 +34,8 @@ export interface IncomingText {
   fromDevice: number;
   text: string;
   receivedAt: number;
+  /** On-device scam-detection verdict over the decrypted text. */
+  verdict: ScamVerdict;
 }
 
 export type TextHandler = (msg: IncomingText) => void;
@@ -38,6 +43,7 @@ export type TextHandler = (msg: IncomingText) => void;
 export class HwfaClient {
   private readonly discovery: DiscoveryClient;
   private readonly crypto: CryptoProvider;
+  private readonly scamDetector: ScamDetector;
   private readonly relayUrl: string;
   private readonly webSocketCtor: WebSocketCtor;
 
@@ -52,6 +58,7 @@ export class HwfaClient {
   constructor(opts: HwfaClientOptions) {
     this.discovery = new DiscoveryClient(opts.discoveryUrl, opts.fetchImpl ?? fetch);
     this.crypto = opts.crypto;
+    this.scamDetector = opts.scamDetector ?? heuristicScamDetector;
     this.relayUrl = opts.relayUrl;
     this.webSocketCtor = opts.webSocketCtor;
   }
@@ -159,11 +166,15 @@ export class HwfaClient {
     if (!this.peerDevice.has(env.senderId)) {
       this.peerDevice.set(env.senderId, env.senderDevice);
     }
+    // Tier-0 on-device scam detection over the decrypted plaintext (Phase 2
+    // swaps the heuristic for the ONNX classifier behind the same seam).
+    const verdict = this.scamDetector.analyze(text);
     const msg: IncomingText = {
       fromUserId: env.senderId,
       fromDevice: env.senderDevice,
       text,
       receivedAt: Date.now(),
+      verdict,
     };
     for (const handler of this.textHandlers) handler(msg);
   }

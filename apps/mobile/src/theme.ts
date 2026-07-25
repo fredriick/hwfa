@@ -8,4 +8,5 @@ export const theme = {
   bubbleOut: '#005c4b',
   bubbleIn: '#1f2c34',
   danger: '#f15c6d',
+  warning: '#f0b429',
 } as const;

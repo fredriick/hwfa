@@ -12,6 +12,7 @@
  * SQLCipher persistence is the next step.
  */
 import { useSyncExternalStore } from 'react';
+import type { ScamVerdict } from '@hwfa/models';
 import { getClient, loadMessages, saveMessages } from '../client/hwfaClient';
 
 export interface ChatMessage {
@@ -19,6 +20,10 @@ export interface ChatMessage {
   text: string;
   mine: boolean;
   at: number;
+  /** On-device scam verdict for inbound messages (absent for outbound). */
+  verdict?: ScamVerdict;
+  /** User dismissed the inline scam warning for this message. */
+  dismissed?: boolean;
 }
 
 export interface Conversation {
@@ -58,7 +63,9 @@ class ConversationStore {
   start(): void {
     if (this.started) return;
     this.started = true;
-    getClient().onText(msg => this.receive(msg.fromUserId, msg.text, msg.receivedAt));
+    getClient().onText(msg =>
+      this.receive(msg.fromUserId, msg.text, msg.receivedAt, msg.verdict),
+    );
     void this.hydrate();
   }
 
@@ -123,6 +130,17 @@ class ConversationStore {
     }
   }
 
+  /** Dismiss the inline scam warning on one message (user override). */
+  dismissScamWarning(peerUserId: string, messageId: string): void {
+    const conv = this.convs.get(peerUserId);
+    if (!conv) return;
+    conv.messages = conv.messages.map(m =>
+      m.id === messageId ? { ...m, dismissed: true } : m,
+    );
+    this.rebuild();
+    this.emit();
+  }
+
   // --- read side (for useSyncExternalStore) ---
 
   subscribe = (listener: Listener): (() => void) => {
@@ -137,9 +155,11 @@ class ConversationStore {
 
   // --- internals ---
 
-  private receive(peerUserId: string, text: string, at: number): void {
+  private receive(peerUserId: string, text: string, at: number, verdict?: ScamVerdict): void {
     const conv = this.ensure(peerUserId);
-    conv.messages = [...conv.messages, this.make(text, false, at)];
+    const message = this.make(text, false, at);
+    if (verdict) message.verdict = verdict;
+    conv.messages = [...conv.messages, message];
     conv.unread += 1;
     conv.lastAt = at;
     this.rebuild();

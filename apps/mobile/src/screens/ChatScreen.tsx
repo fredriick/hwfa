@@ -16,8 +16,36 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { conversationStore, useMessages } from '../store/conversations';
+import { SCAM_CATEGORY_LABELS } from '@hwfa/models';
+import { conversationStore, useMessages, type ChatMessage } from '../store/conversations';
 import { theme } from '../theme';
+
+/** Inline scam warning shown above a flagged inbound message (not a modal). */
+function ScamWarning({
+  message,
+  onDismiss,
+}: {
+  message: ChatMessage;
+  onDismiss: () => void;
+}): React.JSX.Element {
+  const label = message.verdict?.category
+    ? SCAM_CATEGORY_LABELS[message.verdict.category].toLowerCase()
+    : 'a known scam';
+  return (
+    <View style={styles.warning}>
+      <View style={styles.warningHeader}>
+        <Text style={styles.warningTitle}>⚠️  Scam pattern detected</Text>
+        <TouchableOpacity onPress={onDismiss} hitSlop={8}>
+          <Text style={styles.warningDismiss}>✕</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.warningBody}>
+        This message matches patterns common in {label}. Do not send money or
+        share personal information or codes.
+      </Text>
+    </View>
+  );
+}
 
 interface Props {
   peerUserId: string;
@@ -65,11 +93,22 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
         data={messages}
         keyExtractor={m => m.id}
         contentContainerStyle={styles.list}
-        renderItem={({ item }) => (
-          <View style={[styles.bubble, item.mine ? styles.out : styles.in]}>
-            <Text style={styles.bubbleText}>{item.text}</Text>
-          </View>
-        )}
+        renderItem={({ item }) => {
+          const flagged = !item.mine && item.verdict?.flagged && !item.dismissed;
+          return (
+            <View style={styles.messageRow}>
+              {flagged && (
+                <ScamWarning
+                  message={item}
+                  onDismiss={() => conversationStore.dismissScamWarning(peerUserId, item.id)}
+                />
+              )}
+              <View style={[styles.bubble, item.mine ? styles.out : styles.in]}>
+                <Text style={styles.bubbleText}>{item.text}</Text>
+              </View>
+            </View>
+          );
+        }}
       />
 
       {error && <Text style={styles.error}>{error}</Text>}
@@ -105,10 +144,24 @@ const styles = StyleSheet.create({
   peer: { color: theme.text, fontSize: 16, fontWeight: '700' },
   peerId: { color: theme.textDim, fontSize: 12 },
   list: { padding: 12, gap: 8 },
+  messageRow: { gap: 4 },
   bubble: { maxWidth: '80%', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
   out: { alignSelf: 'flex-end', backgroundColor: theme.bubbleOut },
   in: { alignSelf: 'flex-start', backgroundColor: theme.bubbleIn },
   bubbleText: { color: theme.text, fontSize: 15 },
+  warning: {
+    alignSelf: 'flex-start',
+    maxWidth: '90%',
+    backgroundColor: '#3a2417',
+    borderColor: theme.warning,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 10,
+  },
+  warningHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  warningTitle: { color: theme.warning, fontWeight: '700', fontSize: 13 },
+  warningDismiss: { color: theme.warning, fontSize: 15, fontWeight: '700', paddingLeft: 12 },
+  warningBody: { color: theme.text, fontSize: 13, marginTop: 4, lineHeight: 18 },
   error: { color: theme.danger, textAlign: 'center', paddingHorizontal: 16, paddingBottom: 8 },
   composer: {
     flexDirection: 'row',

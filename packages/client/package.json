@@ -10,7 +10,7 @@
     "./node": "./src/node/index.ts"
   },
   "scripts": {
-    "test": "node --test --import tsx ./test/client.test.ts",
+    "test": "node --test --import tsx ./test/scam.test.ts ./test/client.test.ts",
     "typecheck": "tsc --noEmit",
     "demo:peer": "node --import tsx ./demo/peer.ts",
     "demo:backend": "node --import tsx ./demo/backend.ts"

@@ -24,3 +24,9 @@ export type {
   OneTimePreKeyPublic,
   PublishedKeyBundle,
 } from "./crypto-provider.js";
+export {
+  HeuristicScamDetector,
+  heuristicScamDetector,
+  HEURISTIC_MODEL_VERSION,
+} from "./scam/detector.js";
+export type { ScamDetector } from "./scam/detector.js";
