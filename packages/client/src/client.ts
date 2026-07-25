@@ -10,6 +10,7 @@ import type { Envelope } from "@hwfa/models";
 import { DiscoveryClient, type FetchLike } from "./discovery.js";
 import { RelayConnection, type WebSocketCtor } from "./relay.js";
 import type { CryptoProvider } from "./crypto-provider.js";
+import { sha256 } from "./sha256.js";
 
 export interface HwfaClientOptions {
   /** Base URL of the Discovery service, e.g. "http://10.0.2.2:8091". */
@@ -157,18 +158,44 @@ export class HwfaClient {
 }
 
 /**
- * Salted phone hash matching the server: base64(sha256(salt || phone)).
- * Uses Web Crypto (`crypto.subtle`), available in Node ≥ 20, RN (via polyfill),
- * and browsers — so the core stays portable.
+ * Salted phone hash matching the Go server: base64(sha256(salt || phone)).
+ * Uses the bundled SHA-256 (see ./sha256.ts) instead of Web Crypto, since
+ * `crypto.subtle` is absent in React Native's Hermes engine — keeps the core
+ * portable across Node, RN, and browsers.
  */
 export async function hashPhone(saltB64: string, phone: string): Promise<string> {
   const salt = base64ToBytes(saltB64);
-  const phoneBytes = new TextEncoder().encode(phone);
+  const phoneBytes = utf8Encode(phone);
   const input = new Uint8Array(salt.length + phoneBytes.length);
   input.set(salt, 0);
   input.set(phoneBytes, salt.length);
-  const digest = await crypto.subtle.digest("SHA-256", input);
-  return bytesToBase64(new Uint8Array(digest));
+  return bytesToBase64(sha256(input));
+}
+
+/** UTF-8 encode without relying on a global TextEncoder. */
+function utf8Encode(str: string): Uint8Array {
+  const bytes: number[] = [];
+  for (let i = 0; i < str.length; i++) {
+    let code = str.charCodeAt(i);
+    if (code < 0x80) {
+      bytes.push(code);
+    } else if (code < 0x800) {
+      bytes.push(0xc0 | (code >> 6), 0x80 | (code & 0x3f));
+    } else if (code >= 0xd800 && code <= 0xdbff) {
+      // surrogate pair
+      const lo = str.charCodeAt(++i);
+      code = 0x10000 + ((code & 0x3ff) << 10) + (lo & 0x3ff);
+      bytes.push(
+        0xf0 | (code >> 18),
+        0x80 | ((code >> 12) & 0x3f),
+        0x80 | ((code >> 6) & 0x3f),
+        0x80 | (code & 0x3f),
+      );
+    } else {
+      bytes.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
+    }
+  }
+  return new Uint8Array(bytes);
 }
 
 function base64ToBytes(b64: string): Uint8Array {

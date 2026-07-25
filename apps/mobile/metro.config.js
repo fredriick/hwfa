@@ -27,6 +27,30 @@ const config = {
     // so Metro must accept .ts/.tsx as source extensions (it already does) and
     // must not follow a single hoisted copy of react — dedupe to the app's.
     disableHierarchicalLookup: false,
+    // The workspace TS packages use NodeNext-style ".js" import specifiers that
+    // actually point at ".ts" sources (e.g. `from "./discovery.js"` in a .ts
+    // file). Node/tsc resolve that; Metro does not. Try normal resolution first,
+    // then fall back to the ".ts"/".tsx" sibling for a relative ".js" import.
+    resolveRequest: (context, moduleName, platform) => {
+      try {
+        return context.resolveRequest(context, moduleName, platform);
+      } catch (err) {
+        if (
+          (moduleName.startsWith('./') || moduleName.startsWith('../')) &&
+          moduleName.endsWith('.js')
+        ) {
+          const base = moduleName.slice(0, -'.js'.length);
+          for (const ext of ['.ts', '.tsx']) {
+            try {
+              return context.resolveRequest(context, base + ext, platform);
+            } catch (_) {
+              /* try next */
+            }
+          }
+        }
+        throw err;
+      }
+    },
   },
 };
 
