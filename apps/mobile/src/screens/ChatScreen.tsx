@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { SCAM_CATEGORY_LABELS } from '@hwfa/models';
 import { conversationStore, useMessages, type ChatMessage } from '../store/conversations';
+import { formatClock } from '../util/time';
 import { theme } from '../theme';
 
 /** Inline scam warning shown above a flagged inbound message (not a modal). */
@@ -105,6 +106,7 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
               )}
               <View style={[styles.bubble, item.mine ? styles.out : styles.in]}>
                 <Text style={styles.bubbleText}>{item.text}</Text>
+                <Text style={styles.time}>{formatClock(item.at)}</Text>
               </View>
             </View>
           );
@@ -149,6 +151,7 @@ const styles = StyleSheet.create({
   out: { alignSelf: 'flex-end', backgroundColor: theme.bubbleOut },
   in: { alignSelf: 'flex-start', backgroundColor: theme.bubbleIn },
   bubbleText: { color: theme.text, fontSize: 15 },
+  time: { color: theme.textDim, fontSize: 10, alignSelf: 'flex-end', marginTop: 2 },
   warning: {
     alignSelf: 'flex-start',
     maxWidth: '90%',

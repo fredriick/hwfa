@@ -6,6 +6,7 @@
 import React from 'react';
 import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useConversations, type Conversation } from '../store/conversations';
+import { formatRelative } from '../util/time';
 import { theme } from '../theme';
 
 interface Props {
@@ -22,6 +23,11 @@ function preview(conv: Conversation): string {
   const last = conv.messages[conv.messages.length - 1];
   if (!last) return 'No messages yet';
   return `${last.mine ? 'You: ' : ''}${last.text}`;
+}
+
+/** A thread has an active scam flag if any inbound message is flagged + not dismissed. */
+function hasScam(conv: Conversation): boolean {
+  return conv.messages.some(m => m.verdict?.flagged && !m.dismissed);
 }
 
 export function ConversationsScreen({ myUserId, onNewChat, onOpenChat }: Props): React.JSX.Element {
@@ -54,16 +60,24 @@ export function ConversationsScreen({ myUserId, onNewChat, onOpenChat }: Props):
               style={styles.row}
               onPress={() => onOpenChat(item.peerUserId, item.peerPhone)}>
               <View style={styles.rowText}>
-                <Text style={styles.rowTitle}>{title(item)}</Text>
+                <Text style={styles.rowTitle} numberOfLines={1}>
+                  {hasScam(item) && <Text style={styles.scamFlag}>⚠️ </Text>}
+                  {title(item)}
+                </Text>
                 <Text style={styles.rowPreview} numberOfLines={1}>
                   {preview(item)}
                 </Text>
               </View>
-              {item.unread > 0 && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{item.unread}</Text>
-                </View>
-              )}
+              <View style={styles.rowMeta}>
+                {item.lastAt > 0 && (
+                  <Text style={styles.rowTime}>{formatRelative(item.lastAt)}</Text>
+                )}
+                {item.unread > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{item.unread}</Text>
+                  </View>
+                )}
+              </View>
             </TouchableOpacity>
           )}
         />
@@ -105,7 +119,10 @@ const styles = StyleSheet.create({
   },
   rowText: { flex: 1 },
   rowTitle: { color: theme.text, fontSize: 16, fontWeight: '600' },
+  scamFlag: { fontSize: 13 },
   rowPreview: { color: theme.textDim, marginTop: 2 },
+  rowMeta: { alignItems: 'flex-end', gap: 6, minWidth: 40 },
+  rowTime: { color: theme.textDim, fontSize: 11 },
   badge: {
     backgroundColor: theme.accent,
     borderRadius: 12,
