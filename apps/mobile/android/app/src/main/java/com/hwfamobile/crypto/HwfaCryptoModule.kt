@@ -247,6 +247,32 @@ class HwfaCryptoModule(reactContext: ReactApplicationContext) :
     }
   }
 
+  /**
+   * Persist the serialized conversation history (a JSON blob) alongside the key
+   * material in the same Keystore-encrypted store. Phase 1 pragmatic storage;
+   * SQLCipher via a native SQLite module is the production upgrade for querying
+   * and scale.
+   */
+  @ReactMethod
+  fun saveMessages(json: String, promise: Promise) {
+    try {
+      prefs.edit().putString(MESSAGES, json).apply()
+      promise.resolve(null)
+    } catch (e: Exception) {
+      promise.reject("saveMessages", e)
+    }
+  }
+
+  /** Load the persisted conversation history blob, or null if none. */
+  @ReactMethod
+  fun loadMessages(promise: Promise) {
+    try {
+      promise.resolve(prefs.getString(MESSAGES, null))
+    } catch (e: Exception) {
+      promise.reject("loadMessages", e)
+    }
+  }
+
   /** Wipe all key material + account state (logout / start over). */
   @ReactMethod
   fun reset(promise: Promise) {
@@ -264,6 +290,7 @@ class HwfaCryptoModule(reactContext: ReactApplicationContext) :
     private const val ACCOUNT_ID = "account:id"
     private const val ACCOUNT_PHONE = "account:phone"
     private const val ACCOUNT_DEVICE = "account:device"
+    private const val MESSAGES = "messages"
 
     /** EncryptedSharedPreferences with the master key held in the Android Keystore. */
     private fun buildEncryptedPrefs(context: Context): SharedPreferences {

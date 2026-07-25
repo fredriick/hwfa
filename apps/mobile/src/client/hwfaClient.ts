@@ -41,3 +41,12 @@ export async function tryResume(): Promise<string | null> {
 export function saveAccount(accountId: string, phone: string): Promise<null> {
   return getNativeCrypto().saveAccount(accountId, phone);
 }
+
+/** Persist / load the serialized conversation history (see the store). */
+export function saveMessages(json: string): Promise<null> {
+  return getNativeCrypto().saveMessages(json);
+}
+
+export function loadMessages(): Promise<string | null> {
+  return getNativeCrypto().loadMessages();
+}

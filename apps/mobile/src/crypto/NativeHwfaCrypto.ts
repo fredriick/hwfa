@@ -35,6 +35,10 @@ export interface NativeHwfaCryptoSpec {
   saveAccount(accountId: string, phone: string): Promise<null>;
   loadAccount(): Promise<SavedAccount | null>;
   reset(): Promise<null>;
+
+  /** Conversation-history persistence (serialized JSON blob). */
+  saveMessages(json: string): Promise<null>;
+  loadMessages(): Promise<string | null>;
 }
 
 /** A previously onboarded identity, persisted on-device for resume. */

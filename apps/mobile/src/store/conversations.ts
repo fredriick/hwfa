@@ -12,7 +12,7 @@
  * SQLCipher persistence is the next step.
  */
 import { useSyncExternalStore } from 'react';
-import { getClient } from '../client/hwfaClient';
+import { getClient, loadMessages, saveMessages } from '../client/hwfaClient';
 
 export interface ChatMessage {
   id: string;
@@ -35,18 +35,62 @@ type Listener = () => void;
 /** Stable empty array so `getSnapshot` for an unknown peer is referentially stable. */
 const EMPTY: ChatMessage[] = [];
 
+/** Shape persisted to the native encrypted store. */
+interface PersistedState {
+  v: number;
+  counter: number;
+  conversations: Conversation[];
+}
+
 class ConversationStore {
   private convs = new Map<string, Conversation>();
   private listeners = new Set<Listener>();
   private listSnapshot: Conversation[] = [];
   private counter = 0;
   private started = false;
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** Subscribe the one client-wide inbound handler. Idempotent. */
+  /**
+   * Hydrate from the persisted blob, then subscribe the one client-wide inbound
+   * handler. Idempotent. Subscribing after the (async) load can, in a tiny
+   * window, race an inbound message; hydrate merges rather than clobbers.
+   */
   start(): void {
     if (this.started) return;
     this.started = true;
     getClient().onText(msg => this.receive(msg.fromUserId, msg.text, msg.receivedAt));
+    void this.hydrate();
+  }
+
+  private async hydrate(): Promise<void> {
+    try {
+      const json = await loadMessages();
+      if (!json) return;
+      const data = JSON.parse(json) as PersistedState;
+      this.counter = Math.max(this.counter, data.counter ?? 0);
+      for (const c of data.conversations ?? []) {
+        const existing = this.convs.get(c.peerUserId);
+        if (existing) {
+          // A message arrived before hydrate finished — keep it, prepend history.
+          existing.messages = [...(c.messages ?? []), ...existing.messages];
+          existing.peerPhone = existing.peerPhone ?? c.peerPhone;
+          existing.unread += c.unread ?? 0;
+          existing.lastAt = Math.max(existing.lastAt, c.lastAt ?? 0);
+        } else {
+          this.convs.set(c.peerUserId, {
+            peerUserId: c.peerUserId,
+            peerPhone: c.peerPhone,
+            messages: c.messages ?? [],
+            unread: c.unread ?? 0,
+            lastAt: c.lastAt ?? 0,
+          });
+        }
+      }
+      this.rebuild();
+      this.emit();
+    } catch {
+      // Corrupt/absent blob: start empty rather than crash.
+    }
   }
 
   /** Ensure a thread exists (e.g. right after discovering a peer by phone). */
@@ -122,6 +166,23 @@ class ConversationStore {
 
   private emit(): void {
     for (const listener of this.listeners) listener();
+    this.schedulePersist();
+  }
+
+  /** Coalesce rapid mutations into a single write to the native store. */
+  private schedulePersist(): void {
+    if (this.saveTimer) return;
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      const state: PersistedState = {
+        v: 1,
+        counter: this.counter,
+        conversations: [...this.convs.values()],
+      };
+      void saveMessages(JSON.stringify(state)).catch(() => {
+        /* best-effort; retried on the next mutation */
+      });
+    }, 300);
   }
 }
 
