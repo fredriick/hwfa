@@ -5,7 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"log"
+	"os"
 	"sync"
 )
 
@@ -33,17 +36,21 @@ type account struct {
 	verified bool
 }
 
-// Store is the in-memory backing for Phase 1's spike. Production replaces it
-// with Postgres (`accounts`, `key_bundles`, `one_time_prekeys`) but the API
-// surface and semantics are the real thing.
+// Store is the backing for Phase 1's spike. Production replaces it with Postgres
+// (`accounts`, `key_bundles`, `one_time_prekeys`) but the API surface and
+// semantics are the real thing. When a path is configured (DISCOVERY_DATA) the
+// store persists to a JSON file so registrations — and, critically, the salt —
+// survive a restart; otherwise it is purely in-memory.
 type Store struct {
 	mu       sync.Mutex
+	path     string              // persistence file; "" = in-memory only
 	salt     []byte
 	accounts map[string]*account // userID -> account
 	pending  map[string]string   // userID -> OTP code awaiting verification
 	tokens   map[string]string   // bearer token -> userID
 }
 
+// NewStore builds an empty in-memory store with a fresh random salt.
 func NewStore() *Store {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
@@ -55,6 +62,121 @@ func NewStore() *Store {
 		pending:  make(map[string]string),
 		tokens:   make(map[string]string),
 	}
+}
+
+// NewPersistentStore loads the store from `path` if the file exists, otherwise
+// starts empty and will write to that path on the first mutation. Persisting the
+// salt is what makes contact discovery keep working across restarts — a fresh
+// salt would break every previously-registered phone hash.
+func NewPersistentStore(path string) *Store {
+	s := NewStore()
+	s.path = path
+	if err := s.load(); err != nil {
+		log.Printf("discovery: could not load %s (%v); starting empty", path, err)
+	} else if len(s.accounts) > 0 {
+		log.Printf("discovery: loaded %d account(s) from %s", len(s.accounts), path)
+	}
+	return s
+}
+
+// --- persistence ---
+
+type persistedAccount struct {
+	UserID                   string          `json:"userId"`
+	PhoneHashB64             string          `json:"phoneHashB64"`
+	DeviceID                 int             `json:"deviceId"`
+	RegistrationID           int             `json:"registrationId"`
+	IdentityKeyB64           string          `json:"identityKeyB64"`
+	SignedPreKeyID           int             `json:"signedPreKeyId"`
+	SignedPreKeyPublicB64    string          `json:"signedPreKeyPublicB64"`
+	SignedPreKeySignatureB64 string          `json:"signedPreKeySignatureB64"`
+	KyberPreKeyID            int             `json:"kyberPreKeyId"`
+	KyberPreKeyPublicB64     string          `json:"kyberPreKeyPublicB64"`
+	KyberPreKeySignatureB64  string          `json:"kyberPreKeySignatureB64"`
+	OneTime                  []OneTimePreKey `json:"oneTime"`
+	Verified                 bool            `json:"verified"`
+}
+
+type persistedState struct {
+	SaltB64  string             `json:"saltB64"`
+	Accounts []persistedAccount `json:"accounts"`
+	Pending  map[string]string  `json:"pending"`
+	Tokens   map[string]string  `json:"tokens"`
+}
+
+// persistLocked writes the current state to disk. Caller must hold s.mu. No-op
+// when no path is configured. Writes atomically via a temp file + rename.
+func (s *Store) persistLocked() {
+	if s.path == "" {
+		return
+	}
+	state := persistedState{
+		SaltB64:  s.saltB64(),
+		Pending:  s.pending,
+		Tokens:   s.tokens,
+		Accounts: make([]persistedAccount, 0, len(s.accounts)),
+	}
+	for _, a := range s.accounts {
+		state.Accounts = append(state.Accounts, persistedAccount{
+			UserID: a.userID, PhoneHashB64: a.phoneHashB64, DeviceID: a.deviceID,
+			RegistrationID: a.registrationID, IdentityKeyB64: a.identityKeyB64,
+			SignedPreKeyID: a.signedPreKeyID, SignedPreKeyPublicB64: a.signedPreKeyPublicB64,
+			SignedPreKeySignatureB64: a.signedPreKeySignatureB64, KyberPreKeyID: a.kyberPreKeyID,
+			KyberPreKeyPublicB64: a.kyberPreKeyPublicB64, KyberPreKeySignatureB64: a.kyberPreKeySignatureB64,
+			OneTime: a.oneTime, Verified: a.verified,
+		})
+	}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		log.Printf("discovery: marshal state failed: %v", err)
+		return
+	}
+	tmp := s.path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		log.Printf("discovery: write %s failed: %v", tmp, err)
+		return
+	}
+	if err := os.Rename(tmp, s.path); err != nil {
+		log.Printf("discovery: rename into %s failed: %v", s.path, err)
+	}
+}
+
+// load reads the state from disk into the store. A missing file is not an error.
+func (s *Store) load() error {
+	data, err := os.ReadFile(s.path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var state persistedState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return err
+	}
+	salt, err := base64.StdEncoding.DecodeString(state.SaltB64)
+	if err != nil {
+		return err
+	}
+	s.salt = salt
+	if state.Pending != nil {
+		s.pending = state.Pending
+	}
+	if state.Tokens != nil {
+		s.tokens = state.Tokens
+	}
+	for i := range state.Accounts {
+		p := state.Accounts[i]
+		s.accounts[p.UserID] = &account{
+			userID: p.UserID, phoneHashB64: p.PhoneHashB64, deviceID: p.DeviceID,
+			registrationID: p.RegistrationID, identityKeyB64: p.IdentityKeyB64,
+			signedPreKeyID: p.SignedPreKeyID, signedPreKeyPublicB64: p.SignedPreKeyPublicB64,
+			signedPreKeySignatureB64: p.SignedPreKeySignatureB64, kyberPreKeyID: p.KyberPreKeyID,
+			kyberPreKeyPublicB64: p.KyberPreKeyPublicB64, kyberPreKeySignatureB64: p.KyberPreKeySignatureB64,
+			oneTime: p.OneTime, verified: p.Verified,
+		}
+	}
+	return nil
 }
 
 func (s *Store) saltB64() string {
@@ -96,6 +218,7 @@ func (s *Store) register(req RegisterRequest) (userID, otp string) {
 		verified:                 false,
 	}
 	s.pending[userID] = otp
+	s.persistLocked()
 	return userID, otp
 }
 
@@ -118,6 +241,7 @@ func (s *Store) verify(userID, code string) (token string, ok bool) {
 
 	token = newToken()
 	s.tokens[token] = userID
+	s.persistLocked()
 	return token, true
 }
 
@@ -161,6 +285,7 @@ func (s *Store) bundleFor(userID string) (PublishedKeyBundle, bool) {
 		pub := otk.PublicB64
 		bundle.OneTimePreKeyID = &id
 		bundle.OneTimePreKeyPublicB64 = &pub
+		s.persistLocked() // pool shrank — persist so a restart doesn't reissue it
 	}
 	return bundle, true
 }
@@ -174,6 +299,7 @@ func (s *Store) addOneTime(userID string, keys []OneTimePreKey) (int, bool) {
 		return 0, false
 	}
 	acct.oneTime = append(acct.oneTime, keys...)
+	s.persistLocked()
 	return len(acct.oneTime), true
 }
 

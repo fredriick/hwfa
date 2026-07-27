@@ -24,8 +24,17 @@ func main() {
 		addr = ":8091"
 	}
 
+	// DISCOVERY_DATA=<file> persists registrations (and the salt) across restarts;
+	// unset keeps the store purely in-memory (as headless tests expect).
+	var store *Store
+	if dataPath := os.Getenv("DISCOVERY_DATA"); dataPath != "" {
+		store = NewPersistentStore(dataPath)
+	} else {
+		store = NewStore()
+	}
+
 	h := &handlers{
-		store:  NewStore(),
+		store:  store,
 		devOTP: os.Getenv("DISCOVERY_DEV") == "1",
 	}
 

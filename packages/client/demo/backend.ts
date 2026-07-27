@@ -72,7 +72,13 @@ async function main(): Promise<void> {
   const discovery = await start(
     discoveryBin,
     discoveryDir,
-    { DISCOVERY_ADDR: `:${DISCOVERY_PORT}`, DISCOVERY_DEV: "1" },
+    {
+      DISCOVERY_ADDR: `:${DISCOVERY_PORT}`,
+      DISCOVERY_DEV: "1",
+      // Persist registrations + salt across restarts so re-running the demo
+      // backend doesn't orphan already-onboarded accounts.
+      DISCOVERY_DATA: path.join(discoveryDir, "discovery-demo-data.json"),
+    },
     DISCOVERY_PORT,
   );
 

@@ -16,6 +16,10 @@ backend/**/bin/
 *.test
 *.out
 
+# Discovery local persistence (dev only; contains salted hashes, no raw numbers)
+backend/discovery/discovery-*-data.json
+backend/discovery/discovery-*-data.json.tmp
+
 # Secrets & keys — NEVER commit
 .env
 .env.*
