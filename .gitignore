@@ -35,6 +35,11 @@ backend/relay/relay-*-queue.json.tmp
 google-services.json
 **/google-services.json
 *service-account*.json
+*serviceaccount*.json
+*adminsdk*.json
+**/*-firebase-adminsdk-*.json
+# Anything under a secrets/ dir is never committed
+secrets/
 *.p8
 *.p12
 secrets/
