@@ -31,6 +31,10 @@ backend/relay/relay-*-queue.json.tmp
 *.pem
 *.key
 *.keystore
+# Firebase / service-account configs (embed API keys / private keys)
+google-services.json
+**/google-services.json
+*service-account*.json
 *.p8
 *.p12
 secrets/
