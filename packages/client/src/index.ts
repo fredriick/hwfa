@@ -43,3 +43,18 @@ export {
   hashText,
 } from "./scam/reports.js";
 export type { ReportSink } from "./scam/reports.js";
+export {
+  WebCryptoMediaCipher,
+  encryptMedia,
+  decryptMedia,
+  buildMediaBody,
+  isMediaBody,
+  parseMediaBody,
+} from "./media/media.js";
+export type {
+  MediaCipher,
+  MediaKeyMaterial,
+  MediaReference,
+  MediaPlaintext,
+  EncryptedMedia,
+} from "./media/media.js";
