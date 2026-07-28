@@ -273,6 +273,27 @@ class HwfaCryptoModule(reactContext: ReactApplicationContext) :
     }
   }
 
+  /** Persist the false-positive report log (a JSON blob; plaintext-free). */
+  @ReactMethod
+  fun saveReports(json: String, promise: Promise) {
+    try {
+      prefs.edit().putString(REPORTS, json).apply()
+      promise.resolve(null)
+    } catch (e: Exception) {
+      promise.reject("saveReports", e)
+    }
+  }
+
+  /** Load the persisted false-positive report log, or null if none. */
+  @ReactMethod
+  fun loadReports(promise: Promise) {
+    try {
+      promise.resolve(prefs.getString(REPORTS, null))
+    } catch (e: Exception) {
+      promise.reject("loadReports", e)
+    }
+  }
+
   /** Wipe all key material + account state (logout / start over). */
   @ReactMethod
   fun reset(promise: Promise) {
@@ -291,6 +312,7 @@ class HwfaCryptoModule(reactContext: ReactApplicationContext) :
     private const val ACCOUNT_PHONE = "account:phone"
     private const val ACCOUNT_DEVICE = "account:device"
     private const val MESSAGES = "messages"
+    private const val REPORTS = "reports"
 
     /** EncryptedSharedPreferences with the master key held in the Android Keystore. */
     private fun buildEncryptedPrefs(context: Context): SharedPreferences {

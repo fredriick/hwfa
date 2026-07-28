@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { SCAM_CATEGORY_LABELS, type MessageStatus } from '@hwfa/models';
 import { conversationStore, useMessages, type ChatMessage } from '../store/conversations';
+import { falsePositiveReporter } from '../scam/reporter';
 import { formatClock } from '../util/time';
 import { theme } from '../theme';
 
@@ -34,9 +35,11 @@ function StatusTicks({ status }: { status?: MessageStatus }): React.JSX.Element 
 function ScamWarning({
   message,
   onDismiss,
+  onReport,
 }: {
   message: ChatMessage;
   onDismiss: () => void;
+  onReport: () => void;
 }): React.JSX.Element {
   const label = message.verdict?.category
     ? SCAM_CATEGORY_LABELS[message.verdict.category].toLowerCase()
@@ -53,6 +56,9 @@ function ScamWarning({
         This message matches patterns common in {label}. Do not send money or
         share personal information or codes.
       </Text>
+      <TouchableOpacity onPress={onReport} hitSlop={6}>
+        <Text style={styles.warningReport}>Not a scam? Report</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -111,6 +117,12 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
                 <ScamWarning
                   message={item}
                   onDismiss={() => conversationStore.dismissScamWarning(peerUserId, item.id)}
+                  onReport={() => {
+                    if (item.verdict) {
+                      void falsePositiveReporter.report(item.text, item.verdict);
+                    }
+                    conversationStore.dismissScamWarning(peerUserId, item.id);
+                  }}
                 />
               )}
               <View style={[styles.bubble, item.mine ? styles.out : styles.in]}>
@@ -180,6 +192,7 @@ const styles = StyleSheet.create({
   warningTitle: { color: theme.warning, fontWeight: '700', fontSize: 13 },
   warningDismiss: { color: theme.warning, fontSize: 15, fontWeight: '700', paddingLeft: 12 },
   warningBody: { color: theme.text, fontSize: 13, marginTop: 4, lineHeight: 18 },
+  warningReport: { color: theme.warning, fontSize: 12, marginTop: 6, fontWeight: '600' },
   error: { color: theme.danger, textAlign: 'center', paddingHorizontal: 16, paddingBottom: 8 },
   composer: {
     flexDirection: 'row',

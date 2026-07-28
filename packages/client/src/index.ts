@@ -37,3 +37,9 @@ export {
   HEURISTIC_MODEL_VERSION,
 } from "./scam/detector.js";
 export type { ScamDetector } from "./scam/detector.js";
+export {
+  FalsePositiveReporter,
+  MemoryReportSink,
+  hashText,
+} from "./scam/reports.js";
+export type { ReportSink } from "./scam/reports.js";

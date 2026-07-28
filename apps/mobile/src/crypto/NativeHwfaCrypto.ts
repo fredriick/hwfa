@@ -39,6 +39,10 @@ export interface NativeHwfaCryptoSpec {
   /** Conversation-history persistence (serialized JSON blob). */
   saveMessages(json: string): Promise<null>;
   loadMessages(): Promise<string | null>;
+
+  /** False-positive scam report log (serialized JSON blob; plaintext-free). */
+  saveReports(json: string): Promise<null>;
+  loadReports(): Promise<string | null>;
 }
 
 /** A previously onboarded identity, persisted on-device for resume. */
