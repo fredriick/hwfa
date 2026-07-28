@@ -20,6 +20,10 @@ backend/**/bin/
 backend/discovery/discovery-*-data.json
 backend/discovery/discovery-*-data.json.tmp
 
+# Relay local persistence (dev only; opaque ciphertext envelopes)
+backend/relay/relay-*-queue.json
+backend/relay/relay-*-queue.json.tmp
+
 # Secrets & keys — NEVER commit
 .env
 .env.*

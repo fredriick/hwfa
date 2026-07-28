@@ -34,7 +34,15 @@ func main() {
 		addr = ":8080"
 	}
 
-	hub := NewHub()
+	// RELAY_DATA=<file> persists the offline message queue across restarts;
+	// unset keeps it in-memory (as headless tests expect).
+	var hub *Hub
+	if dataPath := os.Getenv("RELAY_DATA"); dataPath != "" {
+		hub = NewPersistentHub(dataPath)
+	} else {
+		hub = NewHub()
+	}
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {

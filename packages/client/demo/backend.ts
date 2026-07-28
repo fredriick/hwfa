@@ -68,7 +68,16 @@ async function main(): Promise<void> {
   const relayBin = buildGo(relayDir, exe("relay-demo"));
   const discoveryBin = buildGo(discoveryDir, exe("discovery-demo"));
 
-  const relay = await start(relayBin, relayDir, { RELAY_ADDR: `:${RELAY_PORT}` }, RELAY_PORT);
+  const relay = await start(
+    relayBin,
+    relayDir,
+    {
+      RELAY_ADDR: `:${RELAY_PORT}`,
+      // Persist the offline message queue across restarts.
+      RELAY_DATA: path.join(relayDir, "relay-demo-queue.json"),
+    },
+    RELAY_PORT,
+  );
   const discovery = await start(
     discoveryBin,
     discoveryDir,
