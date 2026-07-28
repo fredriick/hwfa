@@ -15,6 +15,7 @@ import { ContactsScreen } from './src/screens/ContactsScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
 import { conversationStore } from './src/store/conversations';
 import { tryResume } from './src/client/hwfaClient';
+import { initPush } from './src/push/setup';
 import { theme } from './src/theme';
 
 type Screen =
@@ -50,6 +51,16 @@ function App(): React.JSX.Element {
       cancelled = true;
     };
   }, []);
+
+  // Once online, set up push (permission + FCM token + wake→reconnect).
+  useEffect(() => {
+    if (!userId) return;
+    let cleanup: (() => void) | undefined;
+    void initPush().then(fn => {
+      cleanup = fn;
+    });
+    return () => cleanup?.();
+  }, [userId]);
 
   return (
     <SafeAreaProvider>

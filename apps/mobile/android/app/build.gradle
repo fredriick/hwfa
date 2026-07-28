@@ -1,6 +1,7 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+apply plugin: "com.google.gms.google-services"
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -124,6 +125,10 @@ dependencies {
     // EncryptedSharedPreferences (master key in the Android Keystore) — the
     // at-rest store for the persistent Signal identity/session state.
     implementation("androidx.security:security-crypto:1.0.0")
+
+    // Firebase Cloud Messaging (push). BOM pins the messaging version.
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging")
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
