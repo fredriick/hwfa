@@ -60,6 +60,7 @@ export class HwfaClient {
   private relay: RelayConnection | null = null;
   private userId: string | null = null;
   private deviceId = 1;
+  private pushToken: string | null = null;
 
   /** Peers we already have an outbound session with, and their device id. */
   private readonly peerDevice = new Map<string, number>();
@@ -128,6 +129,8 @@ export class HwfaClient {
       },
     );
     await this.relay.connect();
+    // Re-assert our push token on every (re)connect so the relay can wake us.
+    if (this.pushToken) this.relay.registerPush(this.pushToken);
   }
 
   /** Look up a contact by phone number (salted-hash intersection). */
@@ -168,6 +171,16 @@ export class HwfaClient {
     if (!this.relay) return;
     const device = this.peerDevice.get(peerUserId) ?? 1;
     this.relay.sendReadReceipt(envelopeId, peerUserId, device);
+  }
+
+  /**
+   * Register this device's push token with the relay so it can be woken by a
+   * content-free push when a message arrives while offline. The token is
+   * remembered and re-sent on every relay (re)connect.
+   */
+  registerPushToken(token: string): void {
+    this.pushToken = token;
+    this.relay?.registerPush(token);
   }
 
   onText(handler: TextHandler): void {

@@ -43,6 +43,17 @@ func main() {
 		hub = NewHub()
 	}
 
+	// FCM_SERVICE_ACCOUNT_JSON=<file> enables offline push wake-ups; unset keeps
+	// push disabled (dev/tests). The key stays server-side only.
+	if saPath := os.Getenv("FCM_SERVICE_ACCOUNT_JSON"); saPath != "" {
+		pusher, err := newFCMPusher(saPath)
+		if err != nil {
+			log.Fatalf("push init failed: %v", err)
+		}
+		hub.attachPusher(pusher)
+		log.Printf("push enabled (FCM project via %s)", saPath)
+	}
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {

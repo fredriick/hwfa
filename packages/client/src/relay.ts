@@ -84,6 +84,11 @@ export class RelayConnection {
     this.send({ kind: "receipt", envelopeId, status: "read", targetId, targetDevice });
   }
 
+  /** Register this device's FCM token so the relay can wake it when offline. */
+  registerPush(token: string): void {
+    this.send({ kind: "register-push", token });
+  }
+
   send(msg: RelayMessage): void {
     if (!this.ws) throw new Error("relay not connected");
     this.ws.send(JSON.stringify(msg));

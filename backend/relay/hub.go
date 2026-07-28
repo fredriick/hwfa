@@ -16,18 +16,32 @@ import (
 // 30-day TTL) so delivery also survives horizontal scaling. The relay still
 // never inspects Ciphertext — the persisted blob is opaque envelopes.
 type Hub struct {
-	mu     sync.Mutex
-	path   string                // persistence file; "" = in-memory only
-	conns  map[string]*Client    // routeKey -> live connection
-	queue  map[string][]Envelope // routeKey -> undelivered envelopes
-	nextID uint64
+	mu         sync.Mutex
+	path       string                // persistence file; "" = in-memory only
+	conns      map[string]*Client    // routeKey -> live connection
+	queue      map[string][]Envelope // routeKey -> undelivered envelopes
+	pushTokens map[string]string     // routeKey -> FCM token (in-memory)
+	pusher     Pusher                // nil = push disabled
+	nextID     uint64
 }
 
 func NewHub() *Hub {
 	return &Hub{
-		conns: make(map[string]*Client),
-		queue: make(map[string][]Envelope),
+		conns:      make(map[string]*Client),
+		queue:      make(map[string][]Envelope),
+		pushTokens: make(map[string]string),
 	}
+}
+
+// attachPusher enables offline push via the given Pusher (nil keeps it disabled).
+func (h *Hub) attachPusher(p Pusher) { h.pusher = p }
+
+// registerPushToken records a device's FCM token so it can be woken when a
+// message is queued while it is offline. Keyed by the authenticated routeKey.
+func (h *Hub) registerPushToken(routeKey, token string) {
+	h.mu.Lock()
+	h.pushTokens[routeKey] = token
+	h.mu.Unlock()
 }
 
 // NewPersistentHub loads the queue from `path` if present, else starts empty and
@@ -133,8 +147,10 @@ func (h *Hub) route(env Envelope) string {
 	h.nextID++
 	env.ID = "env-" + itoa(int(h.nextID))
 	target := h.conns[key]
+	var pushToken string
 	if target == nil {
 		h.queue[key] = append(h.queue[key], env)
+		pushToken = h.pushTokens[key]
 	}
 	// Persist so both the queue (offline case) and nextID (envelope-id
 	// uniqueness) survive a restart.
@@ -146,6 +162,16 @@ func (h *Hub) route(env Envelope) string {
 		log.Printf("routed %s -> %s (live)", env.ID, key)
 	} else {
 		log.Printf("queued %s -> %s (offline)", env.ID, key)
+		// Wake the offline recipient with a content-free push (best-effort).
+		if h.pusher != nil && pushToken != "" {
+			go func() {
+				if err := h.pusher.Push(pushToken); err != nil {
+					log.Printf("push to %s failed: %v", key, err)
+				} else {
+					log.Printf("push wake -> %s", key)
+				}
+			}()
+		}
 	}
 	return env.ID
 }

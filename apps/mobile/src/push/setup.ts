@@ -20,9 +20,9 @@ export async function initPush(): Promise<() => void> {
 
   const token = await getFcmToken();
   if (token) {
-    // TODO(push-backend): register this token with the push service so the
-    // server can wake this device for a userId.
-    console.log('[push] FCM token:', token);
+    // Register with the relay so the server can wake this device when offline.
+    getClient().registerPushToken(token);
+    console.log('[push] FCM token registered');
   } else {
     console.log('[push] no FCM token (module not linked or Play Services missing)');
   }
@@ -32,8 +32,8 @@ export async function initPush(): Promise<() => void> {
     void getClient().connectRelay().catch(() => {});
   });
   const offRefresh = onTokenRefresh(t => {
-    console.log('[push] FCM token refreshed:', t);
-    // TODO(push-backend): re-register the rotated token.
+    getClient().registerPushToken(t);
+    console.log('[push] FCM token refreshed + re-registered');
   });
 
   return () => {

@@ -75,6 +75,10 @@ async function main(): Promise<void> {
       RELAY_ADDR: `:${RELAY_PORT}`,
       // Persist the offline message queue across restarts.
       RELAY_DATA: path.join(relayDir, "relay-demo-queue.json"),
+      // Enable offline push if a Firebase service-account key is available.
+      ...(process.env.FCM_SERVICE_ACCOUNT_JSON
+        ? { FCM_SERVICE_ACCOUNT_JSON: process.env.FCM_SERVICE_ACCOUNT_JSON }
+        : {}),
     },
     RELAY_PORT,
   );

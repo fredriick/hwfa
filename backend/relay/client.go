@@ -79,6 +79,11 @@ func (c *Client) readPump() {
 			env.SenderDevice = c.deviceID
 			id := c.hub.route(env)
 			c.send(RelayMessage{Kind: "ack", EnvelopeID: id, AcceptedAt: nowMillis(), ClientRef: msg.ClientRef})
+		case "register-push":
+			// Bind the device's FCM token to this authenticated connection.
+			if msg.Token != "" {
+				c.hub.registerPushToken(c.routeKey, msg.Token)
+			}
 		case "receipt":
 			// The recipient confirmed delivery/read. In production this also
 			// deletes the row from the Postgres message_queue; the in-memory

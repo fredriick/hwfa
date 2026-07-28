@@ -89,10 +89,21 @@ export interface MessageStatusMessage {
   status: "delivered" | "read";
 }
 
+/**
+ * Client → relay: register this device's FCM push token so the relay can wake it
+ * (content-free) when a message is queued while it is offline. The token is bound
+ * to the connection's authenticated userId + device.
+ */
+export interface RegisterPushMessage {
+  kind: "register-push";
+  token: string;
+}
+
 /** Any message that can travel over the relay WebSocket. */
 export type RelayMessage =
   | SendEnvelopeRequest
   | DeliverEnvelopeMessage
   | EnvelopeAckMessage
   | DeliveryReceiptMessage
-  | MessageStatusMessage;
+  | MessageStatusMessage
+  | RegisterPushMessage;

@@ -31,6 +31,9 @@ type RelayMessage struct {
 	Status       string `json:"status,omitempty"` // "delivered" | "read"
 	TargetID     string `json:"targetId,omitempty"`
 	TargetDevice int    `json:"targetDevice,omitempty"`
+
+	// register-push
+	Token string `json:"token,omitempty"`
 }
 
 // routeKey identifies a specific recipient device — the routing granularity,
