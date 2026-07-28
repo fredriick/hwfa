@@ -58,3 +58,9 @@ export type {
   MediaPlaintext,
   EncryptedMedia,
 } from "./media/media.js";
+export {
+  HttpMediaService,
+  uploadMedia,
+  downloadMedia,
+} from "./media/service.js";
+export type { MediaService } from "./media/service.js";
