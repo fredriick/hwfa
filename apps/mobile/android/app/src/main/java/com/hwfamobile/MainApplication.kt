@@ -7,6 +7,7 @@ import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.hwfamobile.crypto.HwfaCryptoPackage
+import com.hwfamobile.media.HwfaMediaPackage
 import com.hwfamobile.push.HwfaPushPackage
 
 class MainApplication : Application(), ReactApplication {
@@ -19,6 +20,7 @@ class MainApplication : Application(), ReactApplication {
           // In-app native modules (not autolinkable — they live in this app).
           add(HwfaCryptoPackage())
           add(HwfaPushPackage())
+          add(HwfaMediaPackage())
         },
     )
   }

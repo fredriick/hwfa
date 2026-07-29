@@ -16,6 +16,7 @@ import { ChatScreen } from './src/screens/ChatScreen';
 import { conversationStore } from './src/store/conversations';
 import { tryResume } from './src/client/hwfaClient';
 import { initPush } from './src/push/setup';
+import { mediaCipherSelfTest } from './src/media/selfTest';
 import { theme } from './src/theme';
 
 type Screen =
@@ -28,6 +29,11 @@ type Screen =
 function App(): React.JSX.Element {
   const [userId, setUserId] = useState<string | null>(null);
   const [screen, setScreen] = useState<Screen>({ name: 'loading' });
+
+  // Dev sanity check: the native media cipher round-trips + is WebCrypto-compatible.
+  useEffect(() => {
+    if (__DEV__) void mediaCipherSelfTest();
+  }, []);
 
   // On launch, resume a persisted identity if there is one; else go to onboarding.
   useEffect(() => {

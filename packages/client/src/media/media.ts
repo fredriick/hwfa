@@ -45,8 +45,9 @@ export interface MediaCipher {
   encrypt(keyB64: string, ivB64: string, plaintext: Uint8Array): Promise<Uint8Array>;
   /** Decrypt `ciphertext` (ciphertext‖tag); throws on auth failure. */
   decrypt(keyB64: string, ivB64: string, ciphertext: Uint8Array): Promise<Uint8Array>;
-  /** Cryptographically-random bytes (key/IV generation). */
-  randomBytes(length: number): Uint8Array;
+  /** Cryptographically-random bytes (key/IV generation). Async so a native
+   *  bridge (React Native) can implement it. */
+  randomBytes(length: number): Promise<Uint8Array>;
   /** base64 sha256 of `data`. */
   sha256B64(data: Uint8Array): Promise<string>;
 }
@@ -76,8 +77,8 @@ export async function encryptMedia(
   cipher: MediaCipher,
   media: MediaPlaintext,
 ): Promise<EncryptedMedia> {
-  const keyBytes = cipher.randomBytes(32);
-  const ivBytes = cipher.randomBytes(12);
+  const keyBytes = await cipher.randomBytes(32);
+  const ivBytes = await cipher.randomBytes(12);
   const keyB64 = bytesToBase64(keyBytes);
   const ivB64 = bytesToBase64(ivBytes);
   const ciphertext = await cipher.encrypt(keyB64, ivB64, media.bytes);
@@ -150,7 +151,7 @@ export class WebCryptoMediaCipher implements MediaCipher {
     this.subtle = cryptoObj.subtle;
   }
 
-  randomBytes(length: number): Uint8Array {
+  async randomBytes(length: number): Promise<Uint8Array> {
     const out = new Uint8Array(length);
     this.crypto.getRandomValues(out);
     return out;
