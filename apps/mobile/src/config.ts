@@ -17,8 +17,10 @@ const HOST = Platform.OS === "android" ? "10.0.2.2" : "localhost";
  */
 const RELAY_PORT = 8190;
 const DISCOVERY_PORT = 8091;
+const MEDIA_PORT = 8092;
 
 export const config = {
   discoveryUrl: `http://${HOST}:${DISCOVERY_PORT}`,
   relayUrl: `ws://${HOST}:${RELAY_PORT}/v1/relay`,
+  mediaUrl: `http://${HOST}:${MEDIA_PORT}`,
 } as const;

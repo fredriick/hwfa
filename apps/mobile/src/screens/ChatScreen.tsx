@@ -7,7 +7,9 @@
  */
 import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
+  Image,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -18,6 +20,7 @@ import {
 } from 'react-native';
 import { SCAM_CATEGORY_LABELS, type MessageStatus } from '@hwfa/models';
 import { conversationStore, useMessages, type ChatMessage } from '../store/conversations';
+import { pickImage } from '../media/imagePicker';
 import { falsePositiveReporter } from '../scam/reporter';
 import { formatClock } from '../util/time';
 import { theme } from '../theme';
@@ -29,6 +32,33 @@ function StatusTicks({ status }: { status?: MessageStatus }): React.JSX.Element 
   const read = status === 'read';
   const glyph = status === 'sent' ? '✓' : '✓✓';
   return <Text style={[styles.tick, read && styles.tickRead]}>{glyph}</Text>;
+}
+
+/** An image attachment inside a bubble: preview, spinner, or a tap-to-retry error. */
+function MediaBubble({
+  message,
+  onRetry,
+}: {
+  message: ChatMessage;
+  onRetry: () => void;
+}): React.JSX.Element {
+  if (message.mediaUri) {
+    return <Image source={{ uri: message.mediaUri }} style={styles.image} resizeMode="cover" />;
+  }
+  if (message.mediaState === 'error') {
+    return (
+      <TouchableOpacity style={styles.imagePlaceholder} onPress={onRetry}>
+        <Text style={styles.imageNote}>Couldn't load photo</Text>
+        <Text style={styles.imageRetry}>Tap to retry</Text>
+      </TouchableOpacity>
+    );
+  }
+  return (
+    <View style={styles.imagePlaceholder}>
+      <ActivityIndicator color={theme.textDim} />
+      <Text style={styles.imageNote}>Loading photo…</Text>
+    </View>
+  );
 }
 
 /** Inline scam warning shown above a flagged inbound message (not a modal). */
@@ -79,6 +109,12 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
     conversationStore.markRead(peerUserId);
   }, [peerUserId, messages.length]);
 
+  // Fetch + decrypt any attachments without an in-memory preview (e.g. restored
+  // from disk, where the plaintext bytes aren't persisted).
+  useEffect(() => {
+    conversationStore.loadPendingMedia(peerUserId);
+  }, [peerUserId, messages.length]);
+
   async function handleSend() {
     const text = draft.trim();
     if (!text) return;
@@ -86,6 +122,17 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
     setError(null);
     try {
       await conversationStore.send(peerUserId, text);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function handleAttach() {
+    setError(null);
+    try {
+      const image = await pickImage();
+      if (!image) return; // cancelled
+      await conversationStore.sendMedia(peerUserId, image);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -125,8 +172,20 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
                   }}
                 />
               )}
-              <View style={[styles.bubble, item.mine ? styles.out : styles.in]}>
-                <Text style={styles.bubbleText}>{item.text}</Text>
+              <View
+                style={[
+                  styles.bubble,
+                  item.mine ? styles.out : styles.in,
+                  item.media && styles.mediaBubble,
+                ]}>
+                {item.media ? (
+                  <MediaBubble
+                    message={item}
+                    onRetry={() => conversationStore.loadPendingMedia(peerUserId)}
+                  />
+                ) : (
+                  <Text style={styles.bubbleText}>{item.text}</Text>
+                )}
                 <View style={styles.meta}>
                   <Text style={styles.time}>{formatClock(item.at)}</Text>
                   {item.mine && <StatusTicks status={item.status} />}
@@ -140,6 +199,9 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
       {error && <Text style={styles.error}>{error}</Text>}
 
       <View style={styles.composer}>
+        <TouchableOpacity style={styles.attachButton} onPress={handleAttach} hitSlop={8}>
+          <Text style={styles.attachIcon}>＋</Text>
+        </TouchableOpacity>
         <TextInput
           style={styles.input}
           value={draft}
@@ -172,9 +234,22 @@ const styles = StyleSheet.create({
   list: { padding: 12, gap: 8 },
   messageRow: { gap: 4 },
   bubble: { maxWidth: '80%', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
+  mediaBubble: { padding: 4 },
   out: { alignSelf: 'flex-end', backgroundColor: theme.bubbleOut },
   in: { alignSelf: 'flex-start', backgroundColor: theme.bubbleIn },
   bubbleText: { color: theme.text, fontSize: 15 },
+  image: { width: 220, height: 220, borderRadius: 10, backgroundColor: theme.bg },
+  imagePlaceholder: {
+    width: 220,
+    height: 220,
+    borderRadius: 10,
+    backgroundColor: theme.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  imageNote: { color: theme.textDim, fontSize: 12 },
+  imageRetry: { color: theme.accent, fontSize: 12, fontWeight: '600' },
   meta: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', gap: 4, marginTop: 2 },
   time: { color: theme.textDim, fontSize: 10 },
   tick: { color: theme.textDim, fontSize: 11 },
@@ -201,6 +276,15 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: theme.surface,
   },
+  attachButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.bg,
+  },
+  attachIcon: { color: theme.accent, fontSize: 26, lineHeight: 28 },
   input: {
     flex: 1,
     backgroundColor: theme.bg,

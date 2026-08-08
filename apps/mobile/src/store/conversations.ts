@@ -13,7 +13,15 @@
  */
 import { useSyncExternalStore } from 'react';
 import type { MessageStatus, ScamVerdict } from '@hwfa/models';
+import {
+  buildMediaBody,
+  isMediaBody,
+  parseMediaBody,
+  type MediaPlaintext,
+  type MediaReference,
+} from '@hwfa/client';
 import { getClient, loadMessages, saveMessages } from '../client/hwfaClient';
+import { downloadImage, toDataUri, uploadImage } from '../media/mediaService';
 
 export interface ChatMessage {
   id: string;
@@ -30,6 +38,12 @@ export interface ChatMessage {
   verdict?: ScamVerdict;
   /** User dismissed the inline scam warning for this message. */
   dismissed?: boolean;
+  /** Media attachment: the E2EE reference (key/IV/locator). Present ⇒ image message. */
+  media?: MediaReference;
+  /** In-memory `data:` URI for display (never persisted — re-fetched on demand). */
+  mediaUri?: string;
+  /** Attachment fetch/decrypt lifecycle. */
+  mediaState?: 'loading' | 'ready' | 'error';
 }
 
 /** Monotonic ranking so a late status update never downgrades the tick. */
@@ -142,6 +156,82 @@ class ConversationStore {
     await getClient().sendText(peerUserId, text, clientRef);
   }
 
+  /**
+   * Send an image: show it immediately from local bytes, then encrypt + upload
+   * the ciphertext and send the `MediaReference` inside the E2EE body. The
+   * plaintext and key never leave the device — only ciphertext reaches R2.
+   */
+  async sendMedia(peerUserId: string, media: MediaPlaintext): Promise<void> {
+    const conv = this.ensure(peerUserId);
+    const at = Date.now();
+    const message = this.make('📷 Photo', true, at);
+    const clientRef = `c${this.counter}-${at.toString(36)}`;
+    message.clientRef = clientRef;
+    message.status = 'sending';
+    message.mediaUri = toDataUri(media.bytes, media.mime); // instant local preview
+    message.mediaState = 'ready';
+    conv.messages = [...conv.messages, message];
+    conv.lastAt = at;
+    this.rebuild();
+    this.emit();
+    try {
+      const ref = await uploadImage(media);
+      this.patch(peerUserId, message.id, { media: ref });
+      await getClient().sendText(peerUserId, buildMediaBody(ref, ref.locator), clientRef);
+    } catch (e) {
+      this.patch(peerUserId, message.id, { mediaState: 'error' });
+      throw e;
+    }
+  }
+
+  /**
+   * Fetch + decrypt inbound attachments that don't yet have an in-memory
+   * preview (freshly received, or restored from disk where the bytes aren't
+   * persisted). Safe to call repeatedly — skips ones already loaded/loading.
+   */
+  loadPendingMedia(peerUserId: string): void {
+    const conv = this.convs.get(peerUserId);
+    if (!conv) return;
+    for (const m of conv.messages) {
+      if (m.media && !m.mediaUri && m.mediaState !== 'loading') {
+        void this.loadMedia(peerUserId, m.id, m.media);
+      }
+    }
+  }
+
+  private async loadMedia(
+    peerUserId: string,
+    messageId: string,
+    ref: MediaReference,
+  ): Promise<void> {
+    this.patch(peerUserId, messageId, { mediaState: 'loading' });
+    try {
+      const plain = await downloadImage(ref);
+      this.patch(peerUserId, messageId, {
+        mediaUri: toDataUri(plain.bytes, plain.mime),
+        mediaState: 'ready',
+      });
+    } catch {
+      this.patch(peerUserId, messageId, { mediaState: 'error' });
+    }
+  }
+
+  /** Immutably update one message by id (new array + object references). */
+  private patch(peerUserId: string, messageId: string, fields: Partial<ChatMessage>): void {
+    const conv = this.convs.get(peerUserId);
+    if (!conv) return;
+    const idx = conv.messages.findIndex(m => m.id === messageId);
+    if (idx === -1) return;
+    const updated = { ...conv.messages[idx]!, ...fields };
+    conv.messages = [
+      ...conv.messages.slice(0, idx),
+      updated,
+      ...conv.messages.slice(idx + 1),
+    ];
+    this.rebuild();
+    this.emit();
+  }
+
   /** Apply an outbound status update (sent → delivered → read), never downgrade. */
   private applyStatus(clientRef: string, status: MessageStatus): void {
     for (const conv of this.convs.values()) {
@@ -221,14 +311,21 @@ class ConversationStore {
     verdict?: ScamVerdict,
   ): void {
     const conv = this.ensure(peerUserId);
-    const message = this.make(text, false, at);
+    const mediaRef = isMediaBody(text) ? parseMediaBody(text) : null;
+    const message = this.make(mediaRef ? '📷 Photo' : text, false, at);
     if (envelopeId) message.envelopeId = envelopeId;
-    if (verdict) message.verdict = verdict;
+    // A media body is opaque JSON — the upstream scam verdict on it is noise.
+    if (verdict && !mediaRef) message.verdict = verdict;
+    if (mediaRef) {
+      message.media = mediaRef;
+      message.mediaState = 'loading';
+    }
     conv.messages = [...conv.messages, message];
     conv.unread += 1;
     conv.lastAt = at;
     this.rebuild();
     this.emit();
+    if (mediaRef) void this.loadMedia(peerUserId, message.id, mediaRef);
   }
 
   private ensure(peerUserId: string): Conversation {
@@ -259,10 +356,15 @@ class ConversationStore {
     if (this.saveTimer) return;
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
+      // Persist the media *reference* (key/IV/locator) but never the decrypted
+      // bytes: strip the in-memory preview so plaintext images stay off disk.
       const state: PersistedState = {
         v: 1,
         counter: this.counter,
-        conversations: [...this.convs.values()],
+        conversations: [...this.convs.values()].map(c => ({
+          ...c,
+          messages: c.messages.map(({ mediaUri: _u, mediaState: _s, ...m }) => m),
+        })),
       };
       try {
         // Guard the synchronous path too: an old native build without
