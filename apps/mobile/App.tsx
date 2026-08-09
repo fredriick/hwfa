@@ -7,8 +7,10 @@
  * screen graph grows.
  */
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StatusBar, StyleSheet, View } from 'react-native';
+import { StatusBar, StyleSheet } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { SplashScreen } from './src/screens/SplashScreen';
+import { WelcomeScreen } from './src/screens/WelcomeScreen';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
 import { ConversationsScreen } from './src/screens/ConversationsScreen';
 import { ContactsScreen } from './src/screens/ContactsScreen';
@@ -19,8 +21,12 @@ import { initPush } from './src/push/setup';
 import { mediaCipherSelfTest } from './src/media/selfTest';
 import { theme } from './src/theme';
 
+/** Minimum time the branded splash stays up, so it doesn't flash by on a fast resume. */
+const SPLASH_MIN_MS = 1400;
+
 type Screen =
-  | { name: 'loading' }
+  | { name: 'splash' }
+  | { name: 'welcome' }
   | { name: 'onboarding' }
   | { name: 'home' }
   | { name: 'contacts' }
@@ -28,29 +34,31 @@ type Screen =
 
 function App(): React.JSX.Element {
   const [userId, setUserId] = useState<string | null>(null);
-  const [screen, setScreen] = useState<Screen>({ name: 'loading' });
+  const [screen, setScreen] = useState<Screen>({ name: 'splash' });
 
   // Dev sanity check: the native media cipher round-trips + is WebCrypto-compatible.
   useEffect(() => {
     if (__DEV__) void mediaCipherSelfTest();
   }, []);
 
-  // On launch, resume a persisted identity if there is one; else go to onboarding.
+  // On launch, hold the splash for a beat, then resume a persisted identity if
+  // there is one (→ home); otherwise show the welcome/consent screen first.
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const minSplash = new Promise<void>(r => setTimeout(r, SPLASH_MIN_MS));
       try {
-        const resumedId = await tryResume();
+        const [resumedId] = await Promise.all([tryResume(), minSplash]);
         if (cancelled) return;
         if (resumedId) {
           setUserId(resumedId);
           conversationStore.start();
           setScreen({ name: 'home' });
         } else {
-          setScreen({ name: 'onboarding' });
+          setScreen({ name: 'welcome' });
         }
       } catch {
-        if (!cancelled) setScreen({ name: 'onboarding' });
+        if (!cancelled) setScreen({ name: 'welcome' });
       }
     })();
     return () => {
@@ -72,10 +80,10 @@ function App(): React.JSX.Element {
     <SafeAreaProvider>
       <StatusBar barStyle="light-content" backgroundColor={theme.bg} />
       <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
-        {screen.name === 'loading' && (
-          <View style={styles.loading}>
-            <ActivityIndicator color={theme.accent} size="large" />
-          </View>
+        {screen.name === 'splash' && <SplashScreen />}
+
+        {screen.name === 'welcome' && (
+          <WelcomeScreen onAgree={() => setScreen({ name: 'onboarding' })} />
         )}
 
         {screen.name === 'onboarding' && (
@@ -123,7 +131,6 @@ function App(): React.JSX.Element {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
-  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });
 
 export default App;
