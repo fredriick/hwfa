@@ -12,7 +12,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { SplashScreen } from './src/screens/SplashScreen';
 import { WelcomeScreen } from './src/screens/WelcomeScreen';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
-import { ConversationsScreen } from './src/screens/ConversationsScreen';
+import { HomeScreen } from './src/screens/HomeScreen';
 import { ContactsScreen } from './src/screens/ContactsScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
 import { conversationStore } from './src/store/conversations';
@@ -98,7 +98,7 @@ function App(): React.JSX.Element {
         )}
 
         {screen.name === 'home' && userId && (
-          <ConversationsScreen
+          <HomeScreen
             myUserId={userId}
             onNewChat={() => setScreen({ name: 'contacts' })}
             onOpenChat={(peerUserId, peerPhone) =>
