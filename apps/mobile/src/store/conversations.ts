@@ -22,6 +22,7 @@ import {
 } from '@hwfa/client';
 import { getClient, loadMessages, saveMessages } from '../client/hwfaClient';
 import { downloadImage, toDataUri, uploadImage } from '../media/mediaService';
+import { isStatusBody, parseStatusBody, statusStore } from './statuses';
 
 export interface ChatMessage {
   id: string;
@@ -44,6 +45,15 @@ export interface ChatMessage {
   mediaUri?: string;
   /** Attachment fetch/decrypt lifecycle. */
   mediaState?: 'loading' | 'ready' | 'error';
+  /** User starred this message (persisted; shown in Starred messages). */
+  starred?: boolean;
+}
+
+/** A starred message paired with the peer it belongs to (for the Starred list). */
+export interface StarredMessage {
+  message: ChatMessage;
+  peerUserId: string;
+  peerPhone?: string;
 }
 
 /** Monotonic ranking so a late status update never downgrades the tick. */
@@ -278,6 +288,30 @@ class ConversationStore {
     }
   }
 
+  /** Toggle the starred flag on one message. */
+  toggleStar(peerUserId: string, messageId: string): void {
+    const conv = this.convs.get(peerUserId);
+    if (!conv) return;
+    conv.messages = conv.messages.map(m =>
+      m.id === messageId ? { ...m, starred: !m.starred } : m,
+    );
+    this.rebuild();
+    this.emit();
+  }
+
+  /** All starred messages across conversations, most recent first. */
+  getStarred(): StarredMessage[] {
+    const out: StarredMessage[] = [];
+    for (const conv of this.convs.values()) {
+      for (const m of conv.messages) {
+        if (m.starred) {
+          out.push({ message: m, peerUserId: conv.peerUserId, peerPhone: conv.peerPhone });
+        }
+      }
+    }
+    return out.sort((a, b) => b.message.at - a.message.at);
+  }
+
   /** Dismiss the inline scam warning on one message (user override). */
   dismissScamWarning(peerUserId: string, messageId: string): void {
     const conv = this.convs.get(peerUserId);
@@ -287,6 +321,25 @@ class ConversationStore {
     );
     this.rebuild();
     this.emit();
+  }
+
+  /** Wipe all in-memory + persisted conversation state (used on log out). */
+  async reset(): Promise<void> {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+    this.convs.clear();
+    this.counter = 0;
+    // Keep `started` true: the single client-wide onText subscription must stay,
+    // or a re-login would add a duplicate handler and double every message.
+    this.rebuild();
+    this.emit();
+    try {
+      await Promise.resolve(saveMessages(JSON.stringify({ v: 1, counter: 0, conversations: [] })));
+    } catch {
+      /* best-effort */
+    }
   }
 
   // --- read side (for useSyncExternalStore) ---
@@ -310,6 +363,17 @@ class ConversationStore {
     envelopeId?: string,
     verdict?: ScamVerdict,
   ): void {
+    // A status update rides the text path but belongs in the Updates tab, not
+    // a chat thread — route it there and stop.
+    if (isStatusBody(text)) {
+      const payload = parseStatusBody(text);
+      if (payload) {
+        const conv = this.convs.get(peerUserId);
+        statusStore.receiveStatus(peerUserId, payload, conv?.peerPhone);
+      }
+      return;
+    }
+
     const conv = this.ensure(peerUserId);
     const mediaRef = isMediaBody(text) ? parseMediaBody(text) : null;
     const message = this.make(mediaRef ? '📷 Photo' : text, false, at);

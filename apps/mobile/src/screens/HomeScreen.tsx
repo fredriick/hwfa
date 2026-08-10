@@ -7,17 +7,23 @@
  * the others are Phase-1 placeholders. A floating action button starts a new
  * chat from anywhere.
  */
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   FlatList,
   Modal,
   Pressable,
+  Share,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import type { ConnectionState } from '@hwfa/client';
 import { useConversations, type Conversation } from '../store/conversations';
+import { useConnectionState } from '../store/connection';
+import { useStatuses, type StatusItem } from '../store/statuses';
+import { postStatus } from '../status/post';
 import { formatRelative } from '../util/time';
 import { theme } from '../theme';
 
@@ -27,6 +33,20 @@ interface Props {
   myUserId: string;
   onNewChat: () => void;
   onOpenChat: (peerUserId: string, peerPhone?: string) => void;
+  onSettings: () => void;
+  onStarred: () => void;
+}
+
+/** Share an invite via the OS share sheet. */
+async function shareInvite(): Promise<void> {
+  try {
+    await Share.share({
+      message:
+        'Chat with me on Hwfa — encrypted messaging with on-device scam detection. https://hwfa.app',
+    });
+  } catch {
+    /* user dismissed the share sheet */
+  }
 }
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
@@ -36,9 +56,20 @@ const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'calls', label: 'Calls', icon: '📞' },
 ];
 
-export function HomeScreen({ myUserId, onNewChat, onOpenChat }: Props): React.JSX.Element {
+export function HomeScreen({
+  myUserId,
+  onNewChat,
+  onOpenChat,
+  onSettings,
+  onStarred,
+}: Props): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('chats');
   const [menuOpen, setMenuOpen] = useState(false);
+
+  const runAndClose = (fn: () => void) => () => {
+    setMenuOpen(false);
+    fn();
+  };
 
   return (
     <View style={styles.container}>
@@ -46,13 +77,7 @@ export function HomeScreen({ myUserId, onNewChat, onOpenChat }: Props): React.JS
 
       <View style={styles.body}>
         {tab === 'chats' && <ChatsTab onOpenChat={onOpenChat} onNewChat={onNewChat} />}
-        {tab === 'updates' && (
-          <EmptyTab
-            icon="📡"
-            title="No updates yet"
-            hint="Share ephemeral, end-to-end encrypted status updates with your contacts."
-          />
-        )}
+        {tab === 'updates' && <UpdatesTab />}
         {tab === 'discover' && <DiscoverTab onNewChat={onNewChat} />}
         {tab === 'calls' && (
           <EmptyTab
@@ -74,24 +99,38 @@ export function HomeScreen({ myUserId, onNewChat, onOpenChat }: Props): React.JS
         visible={menuOpen}
         myUserId={myUserId}
         onClose={() => setMenuOpen(false)}
-        onNewChat={() => {
-          setMenuOpen(false);
-          onNewChat();
-        }}
+        onNewChat={runAndClose(onNewChat)}
+        onStarred={runAndClose(onStarred)}
+        onSettings={runAndClose(onSettings)}
+        onInvite={runAndClose(() => void shareInvite())}
       />
     </View>
   );
 }
 
+const STATUS_META: Record<ConnectionState, { label: string; color: string }> = {
+  connected: { label: 'peer-to-peer', color: theme.neon },
+  connecting: { label: 'connecting…', color: theme.warning },
+  offline: { label: 'offline', color: theme.textDim },
+};
+
 /** Top bar: brand + live network status pill + three-dot menu trigger. */
 function TopBar({ onMenu }: { onMenu: () => void }): React.JSX.Element {
+  const conn = useConnectionState();
+  const meta = STATUS_META[conn];
   return (
     <View style={styles.topBar}>
       <View style={styles.brandRow}>
         <Text style={styles.brand}>Hwfa</Text>
         <View style={styles.statusPill}>
-          <View style={styles.statusDot} />
-          <Text style={styles.statusText}>peer-to-peer</Text>
+          <View
+            style={[
+              styles.statusDot,
+              { backgroundColor: meta.color, shadowColor: meta.color },
+              conn !== 'connected' && styles.statusDotDim,
+            ]}
+          />
+          <Text style={styles.statusText}>{meta.label}</Text>
         </View>
       </View>
       <TouchableOpacity onPress={onMenu} hitSlop={10} style={styles.menuButton}>
@@ -135,18 +174,24 @@ function QuickMenu({
   myUserId,
   onClose,
   onNewChat,
+  onStarred,
+  onSettings,
+  onInvite,
 }: {
   visible: boolean;
   myUserId: string;
   onClose: () => void;
   onNewChat: () => void;
+  onStarred: () => void;
+  onSettings: () => void;
+  onInvite: () => void;
 }): React.JSX.Element {
   const items: { label: string; icon: string; onPress?: () => void; soon?: boolean }[] = [
     { label: 'New chat', icon: '✏️', onPress: onNewChat },
     { label: 'New group', icon: '👥', soon: true },
-    { label: 'Starred messages', icon: '⭐', soon: true },
-    { label: 'Settings', icon: '⚙️', soon: true },
-    { label: 'Invite a friend', icon: '🔗', soon: true },
+    { label: 'Starred messages', icon: '⭐', onPress: onStarred },
+    { label: 'Settings', icon: '⚙️', onPress: onSettings },
+    { label: 'Invite a friend', icon: '🔗', onPress: onInvite },
   ];
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -262,6 +307,14 @@ function ChatsTab({
 
 /** Discover tab — the P2P entry point: find people by number (nodes later). */
 function DiscoverTab({ onNewChat }: { onNewChat: () => void }): React.JSX.Element {
+  const conn = useConnectionState();
+  const meta = STATUS_META[conn];
+  const relayLabel =
+    conn === 'connected'
+      ? 'Connected to the Hwfa relay'
+      : conn === 'connecting'
+        ? 'Connecting to the Hwfa relay…'
+        : 'Offline — reconnecting…';
   return (
     <View style={styles.discover}>
       <TouchableOpacity style={styles.discoverCard} onPress={onNewChat} activeOpacity={0.85}>
@@ -276,13 +329,104 @@ function DiscoverTab({ onNewChat }: { onNewChat: () => void }): React.JSX.Elemen
       <View style={styles.networkBox}>
         <Text style={styles.networkTitle}>Your network</Text>
         <View style={styles.networkStat}>
-          <View style={styles.statusDot} />
-          <Text style={styles.networkStatText}>Connected to the Hwfa relay</Text>
+          <View
+            style={[
+              styles.statusDot,
+              { backgroundColor: meta.color, shadowColor: meta.color },
+              conn !== 'connected' && styles.statusDotDim,
+            ]}
+          />
+          <Text style={[styles.networkStatText, { color: meta.color }]}>{relayLabel}</Text>
         </View>
         <Text style={styles.networkHint}>
           Nearby-peer and direct node discovery arrive in a later phase.
         </Text>
       </View>
+    </View>
+  );
+}
+
+/** Updates tab — compose + view ephemeral, E2EE status broadcasts (24h TTL). */
+function UpdatesTab(): React.JSX.Element {
+  const all = useStatuses();
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  // Only show unexpired statuses; recompute when the list changes.
+  const active = useMemo<StatusItem[]>(() => {
+    const now = Date.now();
+    return all.filter(s => s.expiresAt > now);
+  }, [all]);
+
+  async function share() {
+    const text = draft.trim();
+    if (!text || busy) return;
+    setBusy(true);
+    setNote(null);
+    setDraft('');
+    try {
+      const reached = await postStatus(text);
+      setNote(reached > 0 ? `Shared with ${reached} contact${reached === 1 ? '' : 's'}` : 'Shared');
+    } catch {
+      setNote('Could not share status');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <View style={styles.updates}>
+      <View style={styles.composer}>
+        <TextInput
+          style={styles.composerInput}
+          value={draft}
+          onChangeText={setDraft}
+          placeholder="Share an update…"
+          placeholderTextColor={theme.textDim}
+          maxLength={280}
+          multiline
+        />
+        <TouchableOpacity
+          style={[styles.shareBtn, (!draft.trim() || busy) && styles.shareBtnOff]}
+          onPress={share}
+          disabled={!draft.trim() || busy}>
+          <Text style={styles.shareBtnText}>Share</Text>
+        </TouchableOpacity>
+      </View>
+      {note && <Text style={styles.updatesNote}>{note}</Text>}
+
+      {active.length === 0 ? (
+        <EmptyTab
+          icon="📡"
+          title="No updates yet"
+          hint="Share an ephemeral, end-to-end encrypted update — it reaches your contacts and disappears after 24 hours."
+        />
+      ) : (
+        <FlatList
+          data={active}
+          keyExtractor={s => s.id}
+          contentContainerStyle={styles.updatesList}
+          renderItem={({ item }) => (
+            <View style={styles.statusRow}>
+              <View style={styles.statusRing}>
+                <Text style={styles.statusRingText}>
+                  {item.mine ? 'You' : (item.fromPhone ?? item.fromUserId).slice(-2).toUpperCase()}
+                </Text>
+              </View>
+              <View style={styles.statusCard}>
+                <View style={styles.statusHead}>
+                  <Text style={styles.statusName}>
+                    {item.mine ? 'My update' : item.fromPhone ?? `${item.fromUserId.slice(0, 8)}…`}
+                  </Text>
+                  <Text style={styles.statusTime}>{formatRelative(item.at)}</Text>
+                </View>
+                <Text style={styles.statusBody}>{item.text}</Text>
+              </View>
+            </View>
+          )}
+        />
+      )}
     </View>
   );
 }
@@ -354,6 +498,7 @@ const styles = StyleSheet.create({
     shadowRadius: 5,
     shadowOffset: { width: 0, height: 0 },
   },
+  statusDotDim: { shadowOpacity: 0 },
   statusText: { color: theme.textDim, fontSize: 11, fontWeight: '600', letterSpacing: 0.3 },
   menuButton: { paddingHorizontal: 8, paddingVertical: 2 },
   menuDots: { color: theme.text, fontSize: 26, fontWeight: '700', lineHeight: 28 },
@@ -432,6 +577,62 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   emptyActionText: { color: theme.bg, fontWeight: '800' },
+
+  // Updates
+  updates: { flex: 1 },
+  composer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+    padding: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.hairline,
+  },
+  composerInput: {
+    flex: 1,
+    backgroundColor: theme.surface,
+    color: theme.text,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    maxHeight: 100,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.hairline,
+  },
+  shareBtn: {
+    backgroundColor: theme.accent,
+    borderRadius: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  shareBtnOff: { opacity: 0.4 },
+  shareBtnText: { color: theme.bg, fontWeight: '800' },
+  updatesNote: { color: theme.neon, fontSize: 12, textAlign: 'center', paddingTop: 8 },
+  updatesList: { padding: 12, gap: 10, paddingBottom: 120 },
+  statusRow: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  statusRing: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    borderWidth: 2,
+    borderColor: theme.neon,
+    backgroundColor: theme.elevated,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusRingText: { color: theme.neon, fontSize: 13, fontWeight: '800' },
+  statusCard: {
+    flex: 1,
+    backgroundColor: theme.surface,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.hairline,
+  },
+  statusHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  statusName: { color: theme.text, fontSize: 14, fontWeight: '700' },
+  statusTime: { color: theme.textDim, fontSize: 11 },
+  statusBody: { color: theme.text, fontSize: 15, marginTop: 4, lineHeight: 20 },
 
   // Discover
   discover: { flex: 1, padding: 16, gap: 16 },

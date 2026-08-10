@@ -172,7 +172,10 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
                   }}
                 />
               )}
-              <View
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onLongPress={() => conversationStore.toggleStar(peerUserId, item.id)}
+                delayLongPress={250}
                 style={[
                   styles.bubble,
                   item.mine ? styles.out : styles.in,
@@ -187,10 +190,11 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
                   <Text style={styles.bubbleText}>{item.text}</Text>
                 )}
                 <View style={styles.meta}>
+                  {item.starred && <Text style={styles.star}>★</Text>}
                   <Text style={styles.time}>{formatClock(item.at)}</Text>
                   {item.mine && <StatusTicks status={item.status} />}
                 </View>
-              </View>
+              </TouchableOpacity>
             </View>
           );
         }}
@@ -252,6 +256,7 @@ const styles = StyleSheet.create({
   imageRetry: { color: theme.accent, fontSize: 12, fontWeight: '600' },
   meta: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', gap: 4, marginTop: 2 },
   time: { color: theme.textDim, fontSize: 10 },
+  star: { color: theme.warning, fontSize: 11 },
   tick: { color: theme.textDim, fontSize: 11 },
   tickRead: { color: '#53bdeb' },
   warning: {

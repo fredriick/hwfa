@@ -15,6 +15,8 @@ import { OnboardingScreen } from './src/screens/OnboardingScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { ContactsScreen } from './src/screens/ContactsScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
+import { SettingsScreen } from './src/screens/SettingsScreen';
+import { StarredScreen } from './src/screens/StarredScreen';
 import { conversationStore } from './src/store/conversations';
 import { tryResume } from './src/client/hwfaClient';
 import { initPush } from './src/push/setup';
@@ -30,6 +32,8 @@ type Screen =
   | { name: 'onboarding' }
   | { name: 'home' }
   | { name: 'contacts' }
+  | { name: 'settings' }
+  | { name: 'starred' }
   | { name: 'chat'; peerUserId: string; peerPhone?: string };
 
 function App(): React.JSX.Element {
@@ -101,6 +105,28 @@ function App(): React.JSX.Element {
           <HomeScreen
             myUserId={userId}
             onNewChat={() => setScreen({ name: 'contacts' })}
+            onOpenChat={(peerUserId, peerPhone) =>
+              setScreen({ name: 'chat', peerUserId, peerPhone })
+            }
+            onSettings={() => setScreen({ name: 'settings' })}
+            onStarred={() => setScreen({ name: 'starred' })}
+          />
+        )}
+
+        {screen.name === 'settings' && userId && (
+          <SettingsScreen
+            myUserId={userId}
+            onBack={() => setScreen({ name: 'home' })}
+            onSignedOut={() => {
+              setUserId(null);
+              setScreen({ name: 'welcome' });
+            }}
+          />
+        )}
+
+        {screen.name === 'starred' && userId && (
+          <StarredScreen
+            onBack={() => setScreen({ name: 'home' })}
             onOpenChat={(peerUserId, peerPhone) =>
               setScreen({ name: 'chat', peerUserId, peerPhone })
             }
