@@ -30,6 +30,10 @@ export interface RelayHandlers {
   onDeliver: DeliverHandler;
   onAck?: AckHandler;
   onStatus?: StatusHandler;
+  /** Socket opened (initial connect resolves separately; this also fires then). */
+  onOpen?: () => void;
+  /** Socket closed — the client uses this to flip state + schedule a reconnect. */
+  onClose?: () => void;
 }
 
 export class RelayConnection {
@@ -67,6 +71,9 @@ export class RelayConnection {
         this.handlers.onStatus?.(msg.envelopeId, msg.status);
       }
     });
+
+    this.listen(ws, "open", () => this.handlers.onOpen?.());
+    this.listen(ws, "close", () => this.handlers.onClose?.());
 
     return new Promise<void>((resolve, reject) => {
       this.listen(ws, "open", () => resolve());

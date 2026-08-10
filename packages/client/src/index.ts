@@ -11,6 +11,10 @@ export type {
   HwfaClientOptions,
   IncomingText,
   TextHandler,
+  ConnectionState,
+  ConnectionHandler,
+  MessageStatusUpdate,
+  MessageStatusHandler,
 } from "./client.js";
 export { DiscoveryClient, DiscoveryError } from "./discovery.js";
 export type { ContactMatch, FetchLike } from "./discovery.js";

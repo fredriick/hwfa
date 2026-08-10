@@ -50,6 +50,14 @@ export interface MessageStatusUpdate {
 
 export type MessageStatusHandler = (update: MessageStatusUpdate) => void;
 
+/** Live relay socket state, surfaced to the UI (e.g. the network status pill). */
+export type ConnectionState = "connecting" | "connected" | "offline";
+
+export type ConnectionHandler = (state: ConnectionState) => void;
+
+/** Reconnect backoff schedule (ms), clamped to the last value. */
+const RECONNECT_BACKOFF_MS = [1000, 2000, 5000, 10000, 15000];
+
 export class HwfaClient {
   private readonly discovery: DiscoveryClient;
   private readonly crypto: CryptoProvider;
@@ -61,6 +69,13 @@ export class HwfaClient {
   private userId: string | null = null;
   private deviceId = 1;
   private pushToken: string | null = null;
+
+  /** Connection state + subscribers, and the reconnect machinery. */
+  private connState: ConnectionState = "offline";
+  private readonly connectionHandlers: ConnectionHandler[] = [];
+  private intentionalClose = false;
+  private reconnectAttempt = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Peers we already have an outbound session with, and their device id. */
   private readonly peerDevice = new Map<string, number>();
@@ -117,6 +132,8 @@ export class HwfaClient {
   async connectRelay(): Promise<void> {
     if (!this.userId) throw new Error("onboard() before connecting the relay");
     if (this.relay) return;
+    this.intentionalClose = false;
+    this.setConnectionState("connecting");
     this.relay = new RelayConnection(
       this.relayUrl,
       this.userId,
@@ -126,11 +143,67 @@ export class HwfaClient {
         onDeliver: (env) => void this.handleDeliver(env),
         onAck: (clientRef, envelopeId) => this.handleAck(clientRef, envelopeId),
         onStatus: (envelopeId, status) => this.handleStatus(envelopeId, status),
+        onOpen: () => {
+          this.reconnectAttempt = 0;
+          this.setConnectionState("connected");
+        },
+        onClose: () => this.handleSocketClosed(),
       },
     );
-    await this.relay.connect();
+    try {
+      await this.relay.connect();
+    } catch (err) {
+      // Initial connect failed: drop the dead socket and start retrying.
+      this.relay = null;
+      this.setConnectionState("offline");
+      this.scheduleReconnect();
+      throw err;
+    }
+    this.setConnectionState("connected");
     // Re-assert our push token on every (re)connect so the relay can wake us.
     if (this.pushToken) this.relay.registerPush(this.pushToken);
+  }
+
+  /** Current relay socket state. */
+  get connectionState(): ConnectionState {
+    return this.connState;
+  }
+
+  /** Subscribe to connection-state changes; returns an unsubscribe fn. Fires once
+   *  immediately with the current state so late subscribers are in sync. */
+  onConnectionChange(handler: ConnectionHandler): () => void {
+    this.connectionHandlers.push(handler);
+    handler(this.connState);
+    return () => {
+      const i = this.connectionHandlers.indexOf(handler);
+      if (i >= 0) this.connectionHandlers.splice(i, 1);
+    };
+  }
+
+  private setConnectionState(state: ConnectionState): void {
+    if (this.connState === state) return;
+    this.connState = state;
+    for (const h of this.connectionHandlers) h(state);
+  }
+
+  /** The socket dropped: reflect it and (unless we closed on purpose) reconnect. */
+  private handleSocketClosed(): void {
+    this.relay = null;
+    if (this.intentionalClose) return;
+    this.setConnectionState("offline");
+    this.scheduleReconnect();
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer || this.intentionalClose || !this.userId) return;
+    const delay =
+      RECONNECT_BACKOFF_MS[Math.min(this.reconnectAttempt, RECONNECT_BACKOFF_MS.length - 1)]!;
+    this.reconnectAttempt += 1;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      // connectRelay reschedules itself on failure, so a bad attempt just retries.
+      void this.connectRelay().catch(() => {});
+    }, delay);
   }
 
   /** Look up a contact by phone number (salted-hash intersection). */
@@ -193,8 +266,14 @@ export class HwfaClient {
   }
 
   close(): void {
+    this.intentionalClose = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.relay?.close();
     this.relay = null;
+    this.setConnectionState("offline");
   }
 
   // --- internals ---
