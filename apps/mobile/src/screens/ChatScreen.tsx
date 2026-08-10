@@ -19,7 +19,12 @@ import {
   View,
 } from 'react-native';
 import { SCAM_CATEGORY_LABELS, type MessageStatus } from '@hwfa/models';
-import { conversationStore, useMessages, type ChatMessage } from '../store/conversations';
+import {
+  conversationStore,
+  useConversations,
+  useMessages,
+  type ChatMessage,
+} from '../store/conversations';
 import { pickImage } from '../media/imagePicker';
 import { falsePositiveReporter } from '../scam/reporter';
 import { formatClock } from '../util/time';
@@ -101,8 +106,15 @@ interface Props {
 
 export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.Element {
   const messages = useMessages(peerUserId);
+  const conversations = useConversations();
+  const group = conversations.find(c => c.peerUserId === peerUserId)?.group;
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  const headerTitle = group ? group.name : peerPhone ?? `${peerUserId.slice(0, 8)}…`;
+  const headerSub = group
+    ? `${group.members.length + 1} members`
+    : `${peerUserId.slice(0, 8)}…`;
 
   // Opening the thread clears its unread badge.
   useEffect(() => {
@@ -147,8 +159,8 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
           <Text style={styles.back}>‹</Text>
         </TouchableOpacity>
         <View>
-          <Text style={styles.peer}>{peerPhone ?? `${peerUserId.slice(0, 8)}…`}</Text>
-          <Text style={styles.peerId}>{peerUserId.slice(0, 8)}…</Text>
+          <Text style={styles.peer}>{headerTitle}</Text>
+          <Text style={styles.peerId}>{headerSub}</Text>
         </View>
       </View>
 
@@ -181,6 +193,9 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
                   item.mine ? styles.out : styles.in,
                   item.media && styles.mediaBubble,
                 ]}>
+                {group && !item.mine && item.senderId && (
+                  <Text style={styles.sender}>{item.senderId.slice(0, 8)}…</Text>
+                )}
                 {item.media ? (
                   <MediaBubble
                     message={item}
@@ -242,6 +257,7 @@ const styles = StyleSheet.create({
   out: { alignSelf: 'flex-end', backgroundColor: theme.bubbleOut },
   in: { alignSelf: 'flex-start', backgroundColor: theme.bubbleIn },
   bubbleText: { color: theme.text, fontSize: 15 },
+  sender: { color: theme.neon, fontSize: 12, fontWeight: '700', marginBottom: 2 },
   image: { width: 220, height: 220, borderRadius: 10, backgroundColor: theme.bg },
   imagePlaceholder: {
     width: 220,

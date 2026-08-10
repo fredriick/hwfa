@@ -23,6 +23,13 @@ import {
 import { getClient, loadMessages, saveMessages } from '../client/hwfaClient';
 import { downloadImage, toDataUri, uploadImage } from '../media/mediaService';
 import { isStatusBody, parseStatusBody, statusStore } from './statuses';
+import {
+  buildGroupBody,
+  isGroupBody,
+  newGroupId,
+  parseGroupBody,
+  type GroupPayload,
+} from '../group/wire';
 
 export interface ChatMessage {
   id: string;
@@ -47,6 +54,14 @@ export interface ChatMessage {
   mediaState?: 'loading' | 'ready' | 'error';
   /** User starred this message (persisted; shown in Starred messages). */
   starred?: boolean;
+  /** Group inbound: the actual sender's user id (for attribution). */
+  senderId?: string;
+}
+
+/** Group metadata carried on a group conversation (peerUserId == group id). */
+export interface GroupInfo {
+  name: string;
+  members: string[];
 }
 
 /** A starred message paired with the peer it belongs to (for the Starred list). */
@@ -71,6 +86,8 @@ export interface Conversation {
   messages: ChatMessage[];
   unread: number;
   lastAt: number;
+  /** Present ⇒ this is a group (peerUserId is the group id, not a peer). */
+  group?: GroupInfo;
 }
 
 type Listener = () => void;
@@ -153,6 +170,11 @@ class ConversationStore {
   /** Optimistically append the outbound text, then send it through the client. */
   async send(peerUserId: string, text: string): Promise<void> {
     const conv = this.ensure(peerUserId);
+    // A group conversation fans out to each member instead of a single peer.
+    if (conv.group) {
+      await this.sendGroup(conv, text);
+      return;
+    }
     const at = Date.now();
     const message = this.make(text, true, at);
     const clientRef = `c${this.counter}-${at.toString(36)}`;
@@ -164,6 +186,53 @@ class ConversationStore {
     this.emit();
     // Pass our clientRef so status updates (sent/delivered/read) map back here.
     await getClient().sendText(peerUserId, text, clientRef);
+  }
+
+  /**
+   * Create a group and return its id. Members are peer user ids (the creator is
+   * added implicitly on the wire). Opens as an empty group conversation.
+   */
+  createGroup(name: string, members: string[]): string {
+    const gid = newGroupId();
+    const conv = this.ensure(gid);
+    conv.group = { name, members };
+    conv.lastAt = Date.now();
+    this.rebuild();
+    this.emit();
+    return gid;
+  }
+
+  /** Fan a group message out to every member, E2EE and pairwise. */
+  private async sendGroup(conv: Conversation, text: string): Promise<void> {
+    const at = Date.now();
+    const message = this.make(text, true, at);
+    conv.messages = [...conv.messages, message];
+    conv.lastAt = at;
+    this.rebuild();
+    this.emit();
+    const me = getClient().accountId;
+    const payload: GroupPayload = {
+      gid: conv.peerUserId,
+      name: conv.group!.name,
+      // Include the sender so recipients learn the full roster.
+      members: me ? [...new Set([...conv.group!.members, me])] : conv.group!.members,
+      text,
+    };
+    const body = buildGroupBody(payload);
+    await Promise.all(
+      conv.group!.members
+        .filter(m => m !== me)
+        .map(m => getClient().sendText(m, body).catch(() => {})),
+    );
+  }
+
+  /** Ensure a group conversation exists (from an inbound group message). */
+  private ensureGroup(payload: GroupPayload): Conversation {
+    const conv = this.ensure(payload.gid);
+    const me = getClient().accountId;
+    const members = me ? payload.members.filter(m => m !== me) : payload.members;
+    conv.group = { name: payload.name, members };
+    return conv;
   }
 
   /**
@@ -271,7 +340,8 @@ class ConversationStore {
     conv.messages = conv.messages.map(m => {
       if (m.mine || m.readSent || !m.envelopeId) return m;
       try {
-        client.sendReadReceipt(peerUserId, m.envelopeId);
+        // In a group the receipt must go to the real sender, not the group id.
+        client.sendReadReceipt(m.senderId ?? peerUserId, m.envelopeId);
       } catch {
         /* not connected — retried next open */
       }
@@ -363,6 +433,25 @@ class ConversationStore {
     envelopeId?: string,
     verdict?: ScamVerdict,
   ): void {
+    // A group message rides the text path but belongs in its group thread, with
+    // the real sender attributed (peerUserId here is the sender).
+    if (isGroupBody(text)) {
+      const payload = parseGroupBody(text);
+      if (payload) {
+        const conv = this.ensureGroup(payload);
+        const message = this.make(payload.text, false, at);
+        message.senderId = peerUserId;
+        if (envelopeId) message.envelopeId = envelopeId;
+        if (verdict) message.verdict = verdict;
+        conv.messages = [...conv.messages, message];
+        conv.unread += 1;
+        conv.lastAt = at;
+        this.rebuild();
+        this.emit();
+      }
+      return;
+    }
+
     // A status update rides the text path but belongs in the Updates tab, not
     // a chat thread — route it there and stop.
     if (isStatusBody(text)) {

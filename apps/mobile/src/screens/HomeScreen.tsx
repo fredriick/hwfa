@@ -35,6 +35,7 @@ interface Props {
   onOpenChat: (peerUserId: string, peerPhone?: string) => void;
   onSettings: () => void;
   onStarred: () => void;
+  onNewGroup: () => void;
 }
 
 /** Share an invite via the OS share sheet. */
@@ -62,6 +63,7 @@ export function HomeScreen({
   onOpenChat,
   onSettings,
   onStarred,
+  onNewGroup,
 }: Props): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('chats');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -100,6 +102,7 @@ export function HomeScreen({
         myUserId={myUserId}
         onClose={() => setMenuOpen(false)}
         onNewChat={runAndClose(onNewChat)}
+        onNewGroup={runAndClose(onNewGroup)}
         onStarred={runAndClose(onStarred)}
         onSettings={runAndClose(onSettings)}
         onInvite={runAndClose(() => void shareInvite())}
@@ -174,6 +177,7 @@ function QuickMenu({
   myUserId,
   onClose,
   onNewChat,
+  onNewGroup,
   onStarred,
   onSettings,
   onInvite,
@@ -182,13 +186,14 @@ function QuickMenu({
   myUserId: string;
   onClose: () => void;
   onNewChat: () => void;
+  onNewGroup: () => void;
   onStarred: () => void;
   onSettings: () => void;
   onInvite: () => void;
 }): React.JSX.Element {
   const items: { label: string; icon: string; onPress?: () => void; soon?: boolean }[] = [
     { label: 'New chat', icon: '✏️', onPress: onNewChat },
-    { label: 'New group', icon: '👥', soon: true },
+    { label: 'New group', icon: '👥', onPress: onNewGroup },
     { label: 'Starred messages', icon: '⭐', onPress: onStarred },
     { label: 'Settings', icon: '⚙️', onPress: onSettings },
     { label: 'Invite a friend', icon: '🔗', onPress: onInvite },

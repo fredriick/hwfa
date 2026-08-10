@@ -17,6 +17,7 @@ import { ContactsScreen } from './src/screens/ContactsScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { StarredScreen } from './src/screens/StarredScreen';
+import { NewGroupScreen } from './src/screens/NewGroupScreen';
 import { conversationStore } from './src/store/conversations';
 import { tryResume } from './src/client/hwfaClient';
 import { initPush } from './src/push/setup';
@@ -34,6 +35,7 @@ type Screen =
   | { name: 'contacts' }
   | { name: 'settings' }
   | { name: 'starred' }
+  | { name: 'newgroup' }
   | { name: 'chat'; peerUserId: string; peerPhone?: string };
 
 function App(): React.JSX.Element {
@@ -110,6 +112,16 @@ function App(): React.JSX.Element {
             }
             onSettings={() => setScreen({ name: 'settings' })}
             onStarred={() => setScreen({ name: 'starred' })}
+            onNewGroup={() => setScreen({ name: 'newgroup' })}
+          />
+        )}
+
+        {screen.name === 'newgroup' && userId && (
+          <NewGroupScreen
+            onBack={() => setScreen({ name: 'home' })}
+            onCreated={groupId =>
+              setScreen({ name: 'chat', peerUserId: groupId })
+            }
           />
         )}
 
