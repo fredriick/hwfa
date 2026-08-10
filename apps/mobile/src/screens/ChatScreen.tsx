@@ -26,6 +26,7 @@ import {
   type ChatMessage,
 } from '../store/conversations';
 import { pickImage } from '../media/imagePicker';
+import { callManager } from '../call/manager';
 import { falsePositiveReporter } from '../scam/reporter';
 import { formatClock } from '../util/time';
 import { theme } from '../theme';
@@ -158,10 +159,24 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
         <TouchableOpacity onPress={onBack}>
           <Text style={styles.back}>‹</Text>
         </TouchableOpacity>
-        <View>
+        <View style={styles.headerText}>
           <Text style={styles.peer}>{headerTitle}</Text>
           <Text style={styles.peerId}>{headerSub}</Text>
         </View>
+        {!group && (
+          <View style={styles.callButtons}>
+            <TouchableOpacity
+              hitSlop={8}
+              onPress={() => void callManager.start(peerUserId, peerPhone, false)}>
+              <Text style={styles.callGlyph}>📞</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              hitSlop={8}
+              onPress={() => void callManager.start(peerUserId, peerPhone, true)}>
+              <Text style={styles.callGlyph}>🎥</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
       <FlatList
@@ -248,6 +263,9 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surface,
   },
   back: { color: theme.text, fontSize: 34, lineHeight: 34, marginRight: 4 },
+  headerText: { flex: 1 },
+  callButtons: { flexDirection: 'row', gap: 18, paddingRight: 4 },
+  callGlyph: { fontSize: 22 },
   peer: { color: theme.text, fontSize: 16, fontWeight: '700' },
   peerId: { color: theme.textDim, fontSize: 12 },
   list: { padding: 12, gap: 8 },

@@ -18,6 +18,8 @@ import { ChatScreen } from './src/screens/ChatScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { StarredScreen } from './src/screens/StarredScreen';
 import { NewGroupScreen } from './src/screens/NewGroupScreen';
+import { CallOverlay } from './src/screens/CallScreen';
+import { callManager } from './src/call/manager';
 import { conversationStore } from './src/store/conversations';
 import { tryResume } from './src/client/hwfaClient';
 import { initPush } from './src/push/setup';
@@ -45,6 +47,11 @@ function App(): React.JSX.Element {
   // Dev sanity check: the native media cipher round-trips + is WebCrypto-compatible.
   useEffect(() => {
     if (__DEV__) void mediaCipherSelfTest();
+  }, []);
+
+  // Register the call manager's inbound-signal handler once.
+  useEffect(() => {
+    callManager.init();
   }, []);
 
   // On launch, hold the splash for a beat, then resume a persisted identity if
@@ -163,6 +170,8 @@ function App(): React.JSX.Element {
           />
         )}
       </SafeAreaView>
+      {/* Full-screen call UI floats above every screen. */}
+      <CallOverlay />
     </SafeAreaProvider>
   );
 }

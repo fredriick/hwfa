@@ -21,3 +21,18 @@ buildscript {
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+// The react-native-webrtc AAR (org.jitsi:webrtc) is large and this machine
+// corrupts big HTTPS downloads. It's fetched once, sha1-verified, into a local
+// Maven repo (android/local-maven); route that group there exclusively so
+// Gradle uses the verified file instead of re-downloading from Central.
+allprojects {
+    repositories {
+        exclusiveContent {
+            forRepository {
+                maven { url = uri("${rootDir}/local-maven") }
+            }
+            filter { includeGroup("org.jitsi") }
+        }
+    }
+}

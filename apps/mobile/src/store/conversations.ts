@@ -30,6 +30,8 @@ import {
   parseGroupBody,
   type GroupPayload,
 } from '../group/wire';
+import { isCallBody, parseCallBody } from '../call/wire';
+import { routeCallSignal } from '../call/signalBus';
 
 export interface ChatMessage {
   id: string;
@@ -433,6 +435,13 @@ class ConversationStore {
     envelopeId?: string,
     verdict?: ScamVerdict,
   ): void {
+    // Call signaling rides the text path but belongs to the call manager.
+    if (isCallBody(text)) {
+      const signal = parseCallBody(text);
+      if (signal) routeCallSignal(peerUserId, signal);
+      return;
+    }
+
     // A group message rides the text path but belongs in its group thread, with
     // the real sender attributed (peerUserId here is the sender).
     if (isGroupBody(text)) {

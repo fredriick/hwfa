@@ -24,6 +24,8 @@ import { useConversations, type Conversation } from '../store/conversations';
 import { useConnectionState } from '../store/connection';
 import { useStatuses, type StatusItem } from '../store/statuses';
 import { postStatus } from '../status/post';
+import { useCallLog, type CallLogEntry } from '../call/store';
+import { callManager } from '../call/manager';
 import { formatRelative } from '../util/time';
 import { theme } from '../theme';
 
@@ -81,13 +83,7 @@ export function HomeScreen({
         {tab === 'chats' && <ChatsTab onOpenChat={onOpenChat} onNewChat={onNewChat} />}
         {tab === 'updates' && <UpdatesTab />}
         {tab === 'discover' && <DiscoverTab onNewChat={onNewChat} />}
-        {tab === 'calls' && (
-          <EmptyTab
-            icon="📞"
-            title="No calls yet"
-            hint="Encrypted peer-to-peer voice & video calls are coming soon."
-          />
-        )}
+        {tab === 'calls' && <CallsTab />}
       </View>
 
       {/* Floating action: start a new chat from any tab. */}
@@ -436,6 +432,52 @@ function UpdatesTab(): React.JSX.Element {
   );
 }
 
+/** Calls tab — recent call history with one-tap redial. */
+function CallsTab(): React.JSX.Element {
+  const log = useCallLog();
+  if (log.length === 0) {
+    return (
+      <EmptyTab
+        icon="📞"
+        title="No calls yet"
+        hint="Start an encrypted voice or video call from any chat — tap 📞 or 🎥 in the conversation header."
+      />
+    );
+  }
+  return (
+    <FlatList
+      data={log}
+      keyExtractor={c => c.callId}
+      contentContainerStyle={styles.list}
+      renderItem={({ item }: { item: CallLogEntry }) => {
+        const name = item.peerName ?? `${item.peerId.slice(0, 8)}…`;
+        const missed = item.outcome === 'missed' || item.outcome === 'declined';
+        const arrow = item.direction === 'outgoing' ? '↗' : '↙';
+        return (
+          <View style={styles.row}>
+            <View style={styles.rowAvatar}>
+              <Text style={styles.rowAvatarText}>{item.video ? '🎥' : '📞'}</Text>
+            </View>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle} numberOfLines={1}>
+                {name}
+              </Text>
+              <Text style={[styles.rowPreview, missed && { color: theme.danger }]}>
+                {arrow} {item.outcome} · {formatRelative(item.at)}
+              </Text>
+            </View>
+            <TouchableOpacity
+              hitSlop={8}
+              onPress={() => void callManager.start(item.peerId, item.peerName, item.video)}>
+              <Text style={styles.redial}>{item.video ? '🎥' : '📞'}</Text>
+            </TouchableOpacity>
+          </View>
+        );
+      }}
+    />
+  );
+}
+
 /** Generic centered empty-state used by tabs with no content yet. */
 function EmptyTab({
   icon,
@@ -539,6 +581,7 @@ const styles = StyleSheet.create({
   rowTitle: { color: theme.text, fontSize: 16, fontWeight: '600' },
   scamFlag: { fontSize: 13 },
   rowPreview: { color: theme.textDim, marginTop: 2 },
+  redial: { fontSize: 22 },
   rowMeta: { alignItems: 'flex-end', gap: 6, minWidth: 40 },
   rowTime: { color: theme.textDim, fontSize: 11 },
   badge: {
