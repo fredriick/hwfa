@@ -32,6 +32,8 @@ import {
 } from '../group/wire';
 import { isCallBody, parseCallBody } from '../call/wire';
 import { routeCallSignal } from '../call/signalBus';
+import { buildTypingBody, isTypingBody, parseTypingBody } from '../typing/wire';
+import { typingStore } from './typing';
 
 export interface ChatMessage {
   id: string;
@@ -228,6 +230,28 @@ class ConversationStore {
     );
   }
 
+  /**
+   * Broadcast a typing signal to the conversation's peer(s). Best-effort and
+   * fire-and-forget: failures are swallowed (a lost typing ping is harmless).
+   * We only signal once a session is established (the thread has a message), so
+   * a stray keystroke never forces a fresh X3DH handshake just to say "typing".
+   */
+  sendTyping(conversationId: string, typing: boolean): void {
+    const conv = this.convs.get(conversationId);
+    if (!conv || conv.messages.length === 0) return;
+    const client = getClient();
+    if (conv.group) {
+      const me = client.accountId;
+      const body = buildTypingBody({ typing, gid: conversationId });
+      conv.group.members
+        .filter(m => m !== me)
+        .forEach(m => void client.sendText(m, body).catch(() => {}));
+      return;
+    }
+    const body = buildTypingBody({ typing });
+    void client.sendText(conversationId, body).catch(() => {});
+  }
+
   /** Ensure a group conversation exists (from an inbound group message). */
   private ensureGroup(payload: GroupPayload): Conversation {
     const conv = this.ensure(payload.gid);
@@ -403,6 +427,7 @@ class ConversationStore {
     }
     this.convs.clear();
     this.counter = 0;
+    typingStore.clear();
     // Keep `started` true: the single client-wide onText subscription must stay,
     // or a re-login would add a duplicate handler and double every message.
     this.rebuild();
@@ -435,6 +460,17 @@ class ConversationStore {
     envelopeId?: string,
     verdict?: ScamVerdict,
   ): void {
+    // A typing signal rides the text path but is ephemeral: route it to the
+    // typing store and never let it touch a thread, unread count, or storage.
+    // `peerUserId` is the sender; a group signal carries its gid as the thread.
+    if (isTypingBody(text)) {
+      const payload = parseTypingBody(text);
+      if (payload) {
+        typingStore.receiveTyping(payload.gid ?? peerUserId, peerUserId, payload.typing);
+      }
+      return;
+    }
+
     // Call signaling rides the text path but belongs to the call manager.
     if (isCallBody(text)) {
       const signal = parseCallBody(text);

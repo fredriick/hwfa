@@ -5,7 +5,7 @@
  * the relay by `@hwfa/client`; inbound is decrypted upstream and fanned into the
  * store's per-peer inbox.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -25,11 +25,17 @@ import {
   useMessages,
   type ChatMessage,
 } from '../store/conversations';
+import { useTyping } from '../store/typing';
 import { pickImage } from '../media/imagePicker';
 import { callManager } from '../call/manager';
 import { falsePositiveReporter } from '../scam/reporter';
 import { formatClock } from '../util/time';
 import { theme } from '../theme';
+
+/** Re-announce "typing" at most this often while the user keeps typing. */
+const TYPING_THROTTLE_MS = 3000;
+/** Clear our typing signal after this long with no keystroke. */
+const TYPING_IDLE_MS = 4000;
 
 /** Delivery ticks for an outbound message: ✓ sent, ✓✓ delivered, ✓✓ (blue) read. */
 function StatusTicks({ status }: { status?: MessageStatus }): React.JSX.Element | null {
@@ -111,11 +117,57 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
   const group = conversations.find(c => c.peerUserId === peerUserId)?.group;
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const typingSenders = useTyping(peerUserId);
+
+  // Outbound typing throttle: announce "typing" at most once per interval, and
+  // clear it after a short idle pause. Refs (not state) so it never re-renders.
+  const lastTypingSent = useRef(0);
+  const typingActive = useRef(false);
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const stopTyping = useCallback(() => {
+    if (idleTimer.current) {
+      clearTimeout(idleTimer.current);
+      idleTimer.current = null;
+    }
+    if (typingActive.current) {
+      typingActive.current = false;
+      lastTypingSent.current = 0;
+      conversationStore.sendTyping(peerUserId, false);
+    }
+  }, [peerUserId]);
+
+  const handleDraftChange = useCallback(
+    (text: string) => {
+      setDraft(text);
+      if (text.length === 0) {
+        stopTyping();
+        return;
+      }
+      const now = Date.now();
+      if (now - lastTypingSent.current > TYPING_THROTTLE_MS) {
+        lastTypingSent.current = now;
+        typingActive.current = true;
+        conversationStore.sendTyping(peerUserId, true);
+      }
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+      idleTimer.current = setTimeout(stopTyping, TYPING_IDLE_MS);
+    },
+    [peerUserId, stopTyping],
+  );
+
+  // Stop typing when the thread closes or the peer changes.
+  useEffect(() => stopTyping, [peerUserId, stopTyping]);
 
   const headerTitle = group ? group.name : peerPhone ?? `${peerUserId.slice(0, 8)}…`;
-  const headerSub = group
-    ? `${group.members.length + 1} members`
-    : `${peerUserId.slice(0, 8)}…`;
+  let headerSub: string;
+  if (typingSenders.length > 0) {
+    headerSub = group
+      ? `${typingSenders[0]!.slice(0, 8)}… is typing…`
+      : 'typing…';
+  } else {
+    headerSub = group ? `${group.members.length + 1} members` : `${peerUserId.slice(0, 8)}…`;
+  }
 
   // Opening the thread clears its unread badge.
   useEffect(() => {
@@ -133,6 +185,7 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
     if (!text) return;
     setDraft('');
     setError(null);
+    stopTyping();
     try {
       await conversationStore.send(peerUserId, text);
     } catch (e) {
@@ -161,7 +214,9 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
         </TouchableOpacity>
         <View style={styles.headerText}>
           <Text style={styles.peer}>{headerTitle}</Text>
-          <Text style={styles.peerId}>{headerSub}</Text>
+          <Text style={[styles.peerId, typingSenders.length > 0 && styles.typing]}>
+            {headerSub}
+          </Text>
         </View>
         {!group && (
           <View style={styles.callButtons}>
@@ -239,7 +294,7 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
         <TextInput
           style={styles.input}
           value={draft}
-          onChangeText={setDraft}
+          onChangeText={handleDraftChange}
           placeholder="Message"
           placeholderTextColor={theme.textDim}
           multiline
@@ -268,6 +323,7 @@ const styles = StyleSheet.create({
   callGlyph: { fontSize: 22 },
   peer: { color: theme.text, fontSize: 16, fontWeight: '700' },
   peerId: { color: theme.textDim, fontSize: 12 },
+  typing: { color: theme.neon, fontStyle: 'italic' },
   list: { padding: 12, gap: 8 },
   messageRow: { gap: 4 },
   bubble: { maxWidth: '80%', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
