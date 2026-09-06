@@ -22,6 +22,8 @@ import {
 } from '@hwfa/client';
 import { getClient, loadMessages, saveMessages } from '../client/hwfaClient';
 import { downloadImage, toDataUri, uploadImage } from '../media/mediaService';
+import { saveToDownloads } from '../media/filePicker';
+import { base64ToBytes } from '../media/rnMediaCipher';
 import { isStatusBody, parseStatusBody, statusStore } from './statuses';
 import {
   buildGroupBody,
@@ -50,12 +52,18 @@ export interface ChatMessage {
   verdict?: ScamVerdict;
   /** User dismissed the inline scam warning for this message. */
   dismissed?: boolean;
-  /** Media attachment: the E2EE reference (key/IV/locator). Present ⇒ image message. */
+  /** Media attachment: the E2EE reference (key/IV/locator). Present ⇒ attachment. */
   media?: MediaReference;
-  /** In-memory `data:` URI for display (never persisted — re-fetched on demand). */
+  /** MIME + name for display before the ref lands / for non-image file chips. */
+  mediaMime?: string;
+  mediaName?: string;
+  mediaSize?: number;
+  /** In-memory `data:` URI holding decrypted bytes (never persisted — re-fetched). */
   mediaUri?: string;
   /** Attachment fetch/decrypt lifecycle. */
   mediaState?: 'loading' | 'ready' | 'error';
+  /** A received file has been written out to Downloads. */
+  mediaSaved?: boolean;
   /** User starred this message (persisted; shown in Starred messages). */
   starred?: boolean;
   /** Group inbound: the actual sender's user id (for attribution). */
@@ -98,6 +106,25 @@ type Listener = () => void;
 
 /** Stable empty array so `getSnapshot` for an unknown peer is referentially stable. */
 const EMPTY: ChatMessage[] = [];
+
+/** True for a MIME type we can preview inline as an image. */
+export function isImageMime(mime?: string): boolean {
+  return !!mime && mime.startsWith('image/');
+}
+
+/** The chat-list / bubble label for an attachment, by MIME type. */
+function mediaLabel(mime?: string, name?: string): string {
+  if (isImageMime(mime)) return '📷 Photo';
+  if (mime?.startsWith('video/')) return '🎬 Video';
+  if (mime?.startsWith('audio/')) return '🎵 Audio';
+  return `📎 ${name ?? 'File'}`;
+}
+
+/** Extract the base64 payload from a `data:<mime>;base64,<b64>` URI. */
+function base64FromDataUri(uri: string): string {
+  const comma = uri.indexOf(',');
+  return comma === -1 ? '' : uri.slice(comma + 1);
+}
 
 /** Shape persisted to the native encrypted store. */
 interface PersistedState {
@@ -262,19 +289,26 @@ class ConversationStore {
   }
 
   /**
-   * Send an image: show it immediately from local bytes, then encrypt + upload
-   * the ciphertext and send the `MediaReference` inside the E2EE body. The
-   * plaintext and key never leave the device — only ciphertext reaches R2.
+   * Send an attachment (image or any file): show it immediately from local
+   * bytes, then encrypt + upload the ciphertext and send the `MediaReference`
+   * inside the E2EE body. The plaintext and key never leave the device — only
+   * ciphertext reaches R2.
    */
   async sendMedia(peerUserId: string, media: MediaPlaintext): Promise<void> {
     const conv = this.ensure(peerUserId);
     const at = Date.now();
-    const message = this.make('📷 Photo', true, at);
+    const message = this.make(mediaLabel(media.mime, media.name), true, at);
     const clientRef = `c${this.counter}-${at.toString(36)}`;
     message.clientRef = clientRef;
     message.status = 'sending';
-    message.mediaUri = toDataUri(media.bytes, media.mime); // instant local preview
-    message.mediaState = 'ready';
+    message.mediaMime = media.mime;
+    message.mediaName = media.name;
+    message.mediaSize = media.bytes.length;
+    // Images preview inline immediately; other files just show a chip.
+    if (isImageMime(media.mime)) {
+      message.mediaUri = toDataUri(media.bytes, media.mime);
+      message.mediaState = 'ready';
+    }
     conv.messages = [...conv.messages, message];
     conv.lastAt = at;
     this.rebuild();
@@ -298,10 +332,43 @@ class ConversationStore {
     const conv = this.convs.get(peerUserId);
     if (!conv) return;
     for (const m of conv.messages) {
-      if (m.media && !m.mediaUri && m.mediaState !== 'loading') {
+      // Only images auto-fetch; other files download on an explicit tap.
+      if (m.media && isImageMime(m.media.mime) && !m.mediaUri && m.mediaState !== 'loading') {
         void this.loadMedia(peerUserId, m.id, m.media);
       }
     }
+  }
+
+  /** Explicitly fetch + decrypt one attachment (a tapped file chip). */
+  downloadMedia(peerUserId: string, messageId: string): void {
+    const conv = this.convs.get(peerUserId);
+    const m = conv?.messages.find(x => x.id === messageId);
+    if (!m?.media || m.mediaUri || m.mediaState === 'loading') return;
+    void this.loadMedia(peerUserId, messageId, m.media);
+  }
+
+  /**
+   * Write a received (already-downloaded) attachment out to the device's
+   * Downloads folder. If it hasn't been fetched yet, fetch + decrypt first.
+   */
+  async saveMedia(peerUserId: string, messageId: string): Promise<void> {
+    const conv = this.convs.get(peerUserId);
+    let m = conv?.messages.find(x => x.id === messageId);
+    const ref = m?.media;
+    if (!ref) return;
+    if (!m!.mediaUri) {
+      await this.loadMedia(peerUserId, messageId, ref);
+      m = this.convs.get(peerUserId)?.messages.find(x => x.id === messageId);
+      if (!m?.mediaUri) throw new Error("couldn't load attachment");
+    }
+    const dataB64 = base64FromDataUri(m!.mediaUri!);
+    if (!dataB64) throw new Error('attachment has no data');
+    await saveToDownloads({
+      bytes: base64ToBytes(dataB64),
+      mime: ref.mime,
+      name: ref.name ?? m!.mediaName ?? 'file',
+    });
+    this.patch(peerUserId, messageId, { mediaSaved: true });
   }
 
   private async loadMedia(
@@ -510,20 +577,27 @@ class ConversationStore {
 
     const conv = this.ensure(peerUserId);
     const mediaRef = isMediaBody(text) ? parseMediaBody(text) : null;
-    const message = this.make(mediaRef ? '📷 Photo' : text, false, at);
+    const message = this.make(mediaRef ? mediaLabel(mediaRef.mime, mediaRef.name) : text, false, at);
     if (envelopeId) message.envelopeId = envelopeId;
     // A media body is opaque JSON — the upstream scam verdict on it is noise.
     if (verdict && !mediaRef) message.verdict = verdict;
     if (mediaRef) {
       message.media = mediaRef;
-      message.mediaState = 'loading';
+      message.mediaMime = mediaRef.mime;
+      message.mediaName = mediaRef.name;
+      message.mediaSize = mediaRef.size;
+      // Images auto-download for an inline preview; other files wait for a tap
+      // (they can be large and there's nothing to show until saved).
+      if (isImageMime(mediaRef.mime)) message.mediaState = 'loading';
     }
     conv.messages = [...conv.messages, message];
     conv.unread += 1;
     conv.lastAt = at;
     this.rebuild();
     this.emit();
-    if (mediaRef) void this.loadMedia(peerUserId, message.id, mediaRef);
+    if (mediaRef && isImageMime(mediaRef.mime)) {
+      void this.loadMedia(peerUserId, message.id, mediaRef);
+    }
   }
 
   private ensure(peerUserId: string): Conversation {

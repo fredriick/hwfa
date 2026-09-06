@@ -21,12 +21,14 @@ import {
 import { SCAM_CATEGORY_LABELS, type MessageStatus } from '@hwfa/models';
 import {
   conversationStore,
+  isImageMime,
   useConversations,
   useMessages,
   type ChatMessage,
 } from '../store/conversations';
 import { useTyping } from '../store/typing';
 import { pickImage } from '../media/imagePicker';
+import { pickFile } from '../media/filePicker';
 import { callManager } from '../call/manager';
 import { falsePositiveReporter } from '../scam/reporter';
 import { formatClock } from '../util/time';
@@ -46,8 +48,26 @@ function StatusTicks({ status }: { status?: MessageStatus }): React.JSX.Element 
   return <Text style={[styles.tick, read && styles.tickRead]}>{glyph}</Text>;
 }
 
+/** True once a message carries any attachment (ref, preview, or pending metadata). */
+function isAttachment(m: ChatMessage): boolean {
+  return !!(m.media || m.mediaUri || m.mediaMime);
+}
+
+/** Human-readable byte size, e.g. "2.4 MB". */
+function formatSize(bytes?: number): string {
+  if (!bytes || bytes <= 0) return '';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let n = bytes;
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024;
+    i++;
+  }
+  return `${n >= 10 || i === 0 ? Math.round(n) : n.toFixed(1)} ${units[i]}`;
+}
+
 /** An image attachment inside a bubble: preview, spinner, or a tap-to-retry error. */
-function MediaBubble({
+function ImageBubble({
   message,
   onRetry,
 }: {
@@ -70,6 +90,38 @@ function MediaBubble({
       <ActivityIndicator color={theme.textDim} />
       <Text style={styles.imageNote}>Loading photo…</Text>
     </View>
+  );
+}
+
+/** A non-image file attachment: a chip with name, size, and a save/download action. */
+function FileBubble({
+  message,
+  onSave,
+}: {
+  message: ChatMessage;
+  onSave: () => void;
+}): React.JSX.Element {
+  const name = message.media?.name ?? message.mediaName ?? 'File';
+  const loading = message.mediaState === 'loading';
+  const error = message.mediaState === 'error';
+  const subtitle = error
+    ? "Couldn't load — tap to retry"
+    : message.mediaSaved
+      ? 'Saved to Downloads'
+      : loading
+        ? 'Saving…'
+        : formatSize(message.media?.size ?? message.mediaSize) || 'Tap to save';
+  return (
+    <TouchableOpacity style={styles.fileChip} onPress={onSave} disabled={loading} activeOpacity={0.8}>
+      <Text style={styles.fileIcon}>{message.mediaSaved ? '✓' : '📎'}</Text>
+      <View style={styles.fileMeta}>
+        <Text style={styles.fileName} numberOfLines={1}>
+          {name}
+        </Text>
+        <Text style={styles.fileSub}>{subtitle}</Text>
+      </View>
+      {loading && <ActivityIndicator color={theme.textDim} />}
+    </TouchableOpacity>
   );
 }
 
@@ -204,6 +256,26 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
     }
   }
 
+  async function handleAttachFile() {
+    setError(null);
+    try {
+      const file = await pickFile();
+      if (!file) return; // cancelled
+      await conversationStore.sendMedia(peerUserId, file);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function handleSaveFile(message: ChatMessage) {
+    setError(null);
+    try {
+      await conversationStore.saveMedia(peerUserId, message.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -261,16 +333,23 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
                 style={[
                   styles.bubble,
                   item.mine ? styles.out : styles.in,
-                  item.media && styles.mediaBubble,
+                  isAttachment(item) && styles.mediaBubble,
                 ]}>
                 {group && !item.mine && item.senderId && (
                   <Text style={styles.sender}>{item.senderId.slice(0, 8)}…</Text>
                 )}
-                {item.media ? (
-                  <MediaBubble
-                    message={item}
-                    onRetry={() => conversationStore.loadPendingMedia(peerUserId)}
-                  />
+                {isAttachment(item) ? (
+                  isImageMime(item.mediaMime) ? (
+                    <ImageBubble
+                      message={item}
+                      onRetry={() => conversationStore.loadPendingMedia(peerUserId)}
+                    />
+                  ) : (
+                    <FileBubble
+                      message={item}
+                      onSave={() => void handleSaveFile(item)}
+                    />
+                  )
                 ) : (
                   <Text style={styles.bubbleText}>{item.text}</Text>
                 )}
@@ -289,7 +368,10 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
 
       <View style={styles.composer}>
         <TouchableOpacity style={styles.attachButton} onPress={handleAttach} hitSlop={8}>
-          <Text style={styles.attachIcon}>＋</Text>
+          <Text style={styles.attachIcon}>🖼</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.attachButton} onPress={handleAttachFile} hitSlop={8}>
+          <Text style={styles.attachIcon}>📎</Text>
         </TouchableOpacity>
         <TextInput
           style={styles.input}
@@ -344,6 +426,19 @@ const styles = StyleSheet.create({
   },
   imageNote: { color: theme.textDim, fontSize: 12 },
   imageRetry: { color: theme.accent, fontSize: 12, fontWeight: '600' },
+  fileChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    minWidth: 200,
+    maxWidth: 260,
+  },
+  fileIcon: { fontSize: 24 },
+  fileMeta: { flex: 1 },
+  fileName: { color: theme.text, fontSize: 14, fontWeight: '600' },
+  fileSub: { color: theme.textDim, fontSize: 11, marginTop: 2 },
   meta: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', gap: 4, marginTop: 2 },
   time: { color: theme.textDim, fontSize: 10 },
   star: { color: theme.warning, fontSize: 11 },
