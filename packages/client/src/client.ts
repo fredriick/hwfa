@@ -249,6 +249,33 @@ export class HwfaClient {
   }
 
   /**
+   * Bulk contact discovery: hash a set of (already-normalized, E.164) phone
+   * numbers with the server salt and intersect in one round-trip. Returns the
+   * numbers that map to a registered account, paired with their user id. The
+   * server only ever confirms hashes we already hold — it never learns the
+   * numbers that didn't match.
+   */
+  async discoverContacts(
+    phoneNumbers: string[],
+  ): Promise<{ phoneNumber: string; userId: string }[]> {
+    const unique = [...new Set(phoneNumbers)];
+    if (unique.length === 0) return [];
+    const salt = await this.discovery.getSalt();
+    // Map each hash back to its number (a hash is deterministic per salt).
+    const hashToPhone = new Map<string, string>();
+    for (const phone of unique) {
+      hashToPhone.set(await hashPhone(salt, phone), phone);
+    }
+    const matches = await this.discovery.intersect([...hashToPhone.keys()]);
+    const out: { phoneNumber: string; userId: string }[] = [];
+    for (const m of matches) {
+      const phoneNumber = hashToPhone.get(m.phoneHashB64);
+      if (phoneNumber) out.push({ phoneNumber, userId: m.userId });
+    }
+    return out;
+  }
+
+  /**
    * Encrypt and send a text to a peer, establishing a session on first use.
    * Returns a `clientRef` that correlates later status updates (sent →
    * delivered → read) back to this message; pass one in to reuse your own id.

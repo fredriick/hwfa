@@ -3,6 +3,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Android 13+ runtime permission to post notifications (FCM push). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Contact discovery: read the address book to find which contacts use Hwfa
+         (numbers are hashed on-device before any leave). -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- WebRTC voice/video calls. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />

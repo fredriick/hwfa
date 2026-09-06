@@ -6,6 +6,7 @@ import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
+import com.hwfamobile.contacts.HwfaContactsPackage
 import com.hwfamobile.crypto.HwfaCryptoPackage
 import com.hwfamobile.media.HwfaMediaPackage
 import com.hwfamobile.push.HwfaPushPackage
@@ -21,6 +22,7 @@ class MainApplication : Application(), ReactApplication {
           add(HwfaCryptoPackage())
           add(HwfaPushPackage())
           add(HwfaMediaPackage())
+          add(HwfaContactsPackage())
         },
     )
   }
