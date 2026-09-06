@@ -58,11 +58,15 @@ export type ConnectionHandler = (state: ConnectionState) => void;
 /** Reconnect backoff schedule (ms), clamped to the last value. */
 const RECONNECT_BACKOFF_MS = [1000, 2000, 5000, 10000, 15000];
 
+/** How long a peer's device list is cached before a re-fetch (send-side fanout). */
+const DEVICE_LIST_TTL_MS = 5 * 60 * 1000;
+
 export class HwfaClient {
   private readonly discovery: DiscoveryClient;
   private readonly crypto: CryptoProvider;
   private readonly scamDetector: ScamDetector;
   private readonly relayUrl: string;
+  private readonly discoveryUrlValue: string;
   private readonly webSocketCtor: WebSocketCtor;
 
   private relay: RelayConnection | null = null;
@@ -81,6 +85,8 @@ export class HwfaClient {
 
   /** Peers we already have an outbound session with, and their device id. */
   private readonly peerDevice = new Map<string, number>();
+  /** Cached device lists per peer account (for send-side fanout), with fetch time. */
+  private readonly peerDevices = new Map<string, { devices: string[]; at: number }>();
   private readonly textHandlers: TextHandler[] = [];
   private readonly statusHandlers: MessageStatusHandler[] = [];
 
@@ -90,6 +96,7 @@ export class HwfaClient {
 
   constructor(opts: HwfaClientOptions) {
     this.discovery = new DiscoveryClient(opts.discoveryUrl, opts.fetchImpl ?? fetch);
+    this.discoveryUrlValue = opts.discoveryUrl;
     this.crypto = opts.crypto;
     this.scamDetector = opts.scamDetector ?? heuristicScamDetector;
     this.relayUrl = opts.relayUrl;
@@ -283,20 +290,35 @@ export class HwfaClient {
   async sendText(peerUserId: string, text: string, clientRef?: string): Promise<string> {
     if (!this.relay || !this.userId) throw new Error("not connected");
     const ref = clientRef ?? newClientRef();
-    const peerDevice = await this.ensureSession(peerUserId);
-    const enc = await this.crypto.encrypt(peerUserId, peerDevice, text);
-    this.relay.sendEnvelope(
-      {
-        recipientId: peerUserId,
-        recipientDevice: peerDevice,
-        senderId: this.userId, // relay overrides with the authenticated value
-        senderDevice: this.deviceId,
-        type: enc.type,
-        ciphertext: enc.ciphertextB64,
-        timestamp: Date.now(),
-      },
-      ref,
-    );
+
+    // Fan out to every device on the peer's account (the primary plus any linked
+    // devices), so all of them receive. Delivery to the primary (peerUserId,
+    // which is the account id) carries our clientRef and drives status/receipts
+    // exactly as before; the extra devices are best-effort copies.
+    const devices = await this.devicesForPeer(peerUserId);
+    for (const deviceUserId of devices) {
+      if (deviceUserId === this.userId) continue; // never echo to ourselves
+      try {
+        const peerDevice = await this.ensureSession(deviceUserId);
+        const enc = await this.crypto.encrypt(deviceUserId, peerDevice, text);
+        this.relay.sendEnvelope(
+          {
+            recipientId: deviceUserId,
+            recipientDevice: peerDevice,
+            senderId: this.userId, // relay overrides with the authenticated value
+            senderDevice: this.deviceId,
+            type: enc.type,
+            ciphertext: enc.ciphertextB64,
+            timestamp: Date.now(),
+          },
+          // Track only the primary send; linked-device copies go untracked.
+          deviceUserId === peerUserId ? ref : undefined,
+        );
+      } catch {
+        // A single device failing (e.g. offline, prekeys exhausted) must not
+        // sink the whole send — the others still go out.
+      }
+    }
     return ref;
   }
 
@@ -338,6 +360,54 @@ export class HwfaClient {
   }
 
   // --- internals ---
+
+  /**
+   * The device user ids to deliver a message to for a peer account (primary +
+   * linked). Cached briefly so a peer linking a new device is picked up without
+   * a lookup on every send. Always includes the peer id itself, and falls back
+   * to just that id if the lookup fails (e.g. an older backend) — so single
+   * device behaviour is preserved no matter what.
+   */
+  private async devicesForPeer(peerUserId: string): Promise<string[]> {
+    const cached = this.peerDevices.get(peerUserId);
+    if (cached && Date.now() - cached.at < DEVICE_LIST_TTL_MS) return cached.devices;
+    let devices: string[];
+    try {
+      const list = await this.discovery.listDevices(peerUserId);
+      devices = list.includes(peerUserId) ? list : [peerUserId, ...list];
+    } catch {
+      devices = [peerUserId];
+    }
+    this.peerDevices.set(peerUserId, { devices, at: Date.now() });
+    return devices;
+  }
+
+  /**
+   * Mint a device-linking code on the primary. The returned string is what the
+   * new device consumes via `linkWithCode`; it packs the provisioning token and
+   * the service URLs so the new device is self-configuring.
+   */
+  async createLinkCode(): Promise<string> {
+    const { token } = await this.discovery.createLinkToken();
+    const payload = { v: 1, t: token, d: this.discoveryUrlValue, r: this.relayUrl };
+    return base64UrlEncode(JSON.stringify(payload));
+  }
+
+  /**
+   * Join an existing account from a linking code shown on the primary device:
+   * mint fresh keys for THIS device, link them under the account, and open the
+   * relay. Returns this device's user id and the account id it joined.
+   */
+  async linkWithCode(code: string): Promise<{ userId: string; accountId: string }> {
+    const payload = JSON.parse(base64UrlDecode(code)) as { t?: string };
+    if (!payload.t) throw new Error("invalid link code");
+    const reg = await this.crypto.generateRegistration({ deviceId: this.deviceId });
+    this.deviceId = reg.deviceId;
+    const res = await this.discovery.linkDevice(payload.t, reg.publishedBundle, reg.oneTimePreKeys);
+    this.userId = res.userId;
+    await this.connectRelay();
+    return { userId: res.userId, accountId: res.accountId };
+  }
 
   /** Fetch a peer's bundle and establish an outbound session, once per peer. */
   private async ensureSession(peerUserId: string): Promise<number> {
@@ -436,6 +506,43 @@ function utf8Encode(str: string): Uint8Array {
     }
   }
   return new Uint8Array(bytes);
+}
+
+/** Decode UTF-8 bytes to a string without relying on a global TextDecoder. */
+function utf8Decode(bytes: Uint8Array): string {
+  let out = "";
+  for (let i = 0; i < bytes.length; ) {
+    const b0 = bytes[i++]!;
+    if (b0 < 0x80) {
+      out += String.fromCharCode(b0);
+    } else if (b0 < 0xe0) {
+      const b1 = bytes[i++]! & 0x3f;
+      out += String.fromCharCode(((b0 & 0x1f) << 6) | b1);
+    } else if (b0 < 0xf0) {
+      const b1 = bytes[i++]! & 0x3f;
+      const b2 = bytes[i++]! & 0x3f;
+      out += String.fromCharCode(((b0 & 0x0f) << 12) | (b1 << 6) | b2);
+    } else {
+      const b1 = bytes[i++]! & 0x3f;
+      const b2 = bytes[i++]! & 0x3f;
+      const b3 = bytes[i++]! & 0x3f;
+      let cp = ((b0 & 0x07) << 18) | (b1 << 12) | (b2 << 6) | b3;
+      cp -= 0x10000;
+      out += String.fromCharCode(0xd800 + (cp >> 10), 0xdc00 + (cp & 0x3ff));
+    }
+  }
+  return out;
+}
+
+/** URL-safe base64 of a UTF-8 string (for the copy/paste device-link code). */
+function base64UrlEncode(str: string): string {
+  return bytesToBase64(utf8Encode(str)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64UrlDecode(code: string): string {
+  let b64 = code.replace(/-/g, "+").replace(/_/g, "/");
+  while (b64.length % 4) b64 += "=";
+  return utf8Decode(base64ToBytes(b64));
 }
 
 function base64ToBytes(b64: string): Uint8Array {

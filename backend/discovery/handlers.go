@@ -136,6 +136,69 @@ func (h *handlers) uploadKeys(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, UploadResponse{PoolSize: size})
 }
 
+// POST /v1/devices/link-token — an authed device mints a provisioning token so
+// another device can join its account. Returns the token + its TTL.
+func (h *handlers) linkToken(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.bearerUser(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing or invalid token")
+		return
+	}
+	accountID, ok := h.store.accountIDFor(userID)
+	if !ok {
+		writeError(w, http.StatusNotFound, "account not found")
+		return
+	}
+	token, ttl := h.store.createLinkToken(accountID)
+	writeJSON(w, http.StatusOK, LinkTokenResponse{Token: token, ExpiresInSec: int(ttl.Seconds())})
+}
+
+// POST /v1/devices/link — a new device joins an account using a provisioning
+// token (the token is the authorization, so this route is not bearer-authed).
+func (h *handlers) link(w http.ResponseWriter, r *http.Request) {
+	var req LinkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.Token == "" || req.IdentityKeyB64 == "" {
+		writeError(w, http.StatusBadRequest, "missing token or identity key")
+		return
+	}
+	userID, accountID, token, ok := h.store.linkDevice(req.Token, req.asRegister())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "invalid or expired link token")
+		return
+	}
+	writeJSON(w, http.StatusOK, LinkResponse{UserID: userID, AccountID: accountID, Token: token})
+}
+
+// GET /v1/accounts/{accountId}/devices — list the device userIDs sharing an
+// account, so a sender can fan a message out to all of a peer's devices.
+func (h *handlers) devices(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.bearerUser(r); !ok {
+		writeError(w, http.StatusUnauthorized, "missing or invalid token")
+		return
+	}
+	accountID := r.PathValue("accountId")
+	writeJSON(w, http.StatusOK, DevicesResponse{Devices: h.store.devicesFor(accountID)})
+}
+
+// GET /v1/accounts/{userId}/account — resolve a device userID to its accountID,
+// so a recipient threads a linked peer's messages under one conversation.
+func (h *handlers) account(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.bearerUser(r); !ok {
+		writeError(w, http.StatusUnauthorized, "missing or invalid token")
+		return
+	}
+	accountID, ok := h.store.accountIDFor(r.PathValue("userId"))
+	if !ok {
+		writeError(w, http.StatusNotFound, "no verified account for that user")
+		return
+	}
+	writeJSON(w, http.StatusOK, AccountResponse{AccountID: accountID})
+}
+
 // GET /v1/contacts/salt — the salt clients use to hash contacts before intersect.
 func (h *handlers) salt(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.bearerUser(r); !ok {

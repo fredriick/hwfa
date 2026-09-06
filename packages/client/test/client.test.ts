@@ -118,16 +118,34 @@ test("HwfaClient: onboard, discover, and exchange E2EE texts through the real se
   const bobId = await bob.onboard(BOB_PHONE);
   assert.ok(aliceId && bobId && aliceId !== bobId, "distinct account ids issued");
 
-  // 2) Alice discovers Bob by phone number (salted-hash intersection).
+  // 1b) Bob links a second device to his account (QR/code provisioning). It gets
+  // its own id + keys but shares Bob's account, so messages to Bob fan out to it.
+  const bob2 = new HwfaClient({ ...opts, crypto: new NodeCryptoProvider() });
+  const bob2Inbox: IncomingText[] = [];
+  bob2.onText((m) => bob2Inbox.push(m));
+  t.after(() => bob2.close());
+
+  const linkCode = await bob.createLinkCode();
+  const linked = await bob2.linkWithCode(linkCode);
+  assert.equal(linked.accountId, bobId, "linked device joins Bob's account");
+  assert.notEqual(linked.userId, bobId, "linked device has its own user id");
+
+  // 2) Alice discovers Bob by phone number (salted-hash intersection). Only the
+  // primary is discoverable — the linked device carries no phone hash.
   const found = await alice.findContact(BOB_PHONE);
   assert.equal(found, bobId, "findContact resolves Bob's phone to his account id");
   const stranger = await alice.findContact("+2340000000000");
   assert.equal(stranger, null, "an unregistered number resolves to nobody");
 
-  // 3) Alice → Bob, E2EE through the relay.
+  // 3) Alice → Bob, E2EE through the relay. It fans out to both of Bob's devices.
   const ref1 = await alice.sendText(bobId, "Hello from the client core 🔐");
-  await until(() => bobInbox.length === 1);
+  await until(() => bobInbox.length === 1 && bob2Inbox.length === 1);
   assert.equal(bobInbox[0]!.text, "Hello from the client core 🔐", "Bob decrypts Alice's message");
+  assert.equal(
+    bob2Inbox[0]!.text,
+    "Hello from the client core 🔐",
+    "Bob's linked device also receives the message (send-side fanout)",
+  );
 
   // 3a) Receipts: Bob's client auto-confirms delivery; Alice sees "delivered".
   await until(() => aliceStatus.get(ref1) === "delivered");

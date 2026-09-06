@@ -24,12 +24,13 @@ interface Props {
   onOnboarded: (userId: string) => void;
 }
 
-type Phase = 'phone' | 'code';
+type Phase = 'phone' | 'code' | 'link';
 
 export function OnboardingScreen({ onOnboarded }: Props): React.JSX.Element {
   const [phase, setPhase] = useState<Phase>('phone');
   const [phone, setPhone] = useState('+234');
   const [code, setCode] = useState('');
+  const [linkCode, setLinkCode] = useState('');
   const [devHint, setDevHint] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,6 +77,22 @@ export function OnboardingScreen({ onOnboarded }: Props): React.JSX.Element {
     setError(null);
   }
 
+  async function handleLink() {
+    setBusy(true);
+    setError(null);
+    try {
+      const { userId } = await getClient().linkWithCode(linkCode.trim());
+      // A linked device shares the account but has no phone of its own; persist
+      // its own device id so the next launch resumes.
+      await saveAccount(userId, '');
+      onOnboarded(userId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.logo}>Hwfa</Text>
@@ -102,6 +119,36 @@ export function OnboardingScreen({ onOnboarded }: Props): React.JSX.Element {
             ) : (
               <Text style={styles.buttonText}>Send code</Text>
             )}
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => { setPhase('link'); setError(null); }} disabled={busy}>
+            <Text style={styles.secondary}>Link to an existing account</Text>
+          </TouchableOpacity>
+        </>
+      ) : phase === 'link' ? (
+        <>
+          <Text style={styles.label}>Paste the code from your other device</Text>
+          <TextInput
+            style={styles.input}
+            value={linkCode}
+            onChangeText={setLinkCode}
+            placeholder="Linking code…"
+            placeholderTextColor={theme.textDim}
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoFocus
+          />
+          <TouchableOpacity
+            style={[styles.button, busy && styles.buttonDisabled]}
+            onPress={handleLink}
+            disabled={busy}>
+            {busy ? (
+              <ActivityIndicator color={theme.text} />
+            ) : (
+              <Text style={styles.buttonText}>Link device</Text>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => { setPhase('phone'); setError(null); }} disabled={busy}>
+            <Text style={styles.secondary}>Use a phone number instead</Text>
           </TouchableOpacity>
         </>
       ) : (

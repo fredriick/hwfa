@@ -10,7 +10,18 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 )
+
+// linkTTL is how long a device-provisioning token stays valid after the primary
+// device mints it. Short by design: the code is meant to be used immediately.
+const linkTTL = 5 * time.Minute
+
+// linkToken authorizes one secondary device to join an existing account.
+type linkToken struct {
+	accountID string
+	expiresAt time.Time
+}
 
 // account is the server-side record for one registered device. It holds the
 // public key material and the one-time prekey pool. Note what is NOT here: the
@@ -18,8 +29,14 @@ import (
 // sees either.
 type account struct {
 	userID string
+	// accountID groups a user's devices: the primary device's accountID is its
+	// own userID; a linked secondary device shares the primary's userID here.
+	// Peers address a user by the primary userID (what contact discovery returns)
+	// and fan a message out to every device sharing that accountID.
+	accountID string
 	// phoneHashB64 = base64(sha256(salt || phoneNumber)). Used for contact
-	// intersection; the raw number is discarded after the OTP is sent.
+	// intersection; the raw number is discarded after the OTP is sent. Empty for
+	// linked secondary devices, so only the primary is discoverable by number.
 	phoneHashB64 string
 	deviceID     int
 	registrationID int
@@ -45,9 +62,12 @@ type Store struct {
 	mu       sync.Mutex
 	path     string              // persistence file; "" = in-memory only
 	salt     []byte
-	accounts map[string]*account // userID -> account
+	accounts map[string]*account // userID -> account (one per device)
 	pending  map[string]string   // userID -> OTP code awaiting verification
 	tokens   map[string]string   // bearer token -> userID
+	// linkTokens are ephemeral device-provisioning codes (not persisted; they
+	// expire in minutes, so losing them on restart is fine).
+	linkTokens map[string]linkToken // link token -> {accountID, expiry}
 }
 
 // NewStore builds an empty in-memory store with a fresh random salt.
@@ -57,10 +77,11 @@ func NewStore() *Store {
 		panic("discovery: cannot read random salt: " + err.Error())
 	}
 	return &Store{
-		salt:     salt,
-		accounts: make(map[string]*account),
-		pending:  make(map[string]string),
-		tokens:   make(map[string]string),
+		salt:       salt,
+		accounts:   make(map[string]*account),
+		pending:    make(map[string]string),
+		tokens:     make(map[string]string),
+		linkTokens: make(map[string]linkToken),
 	}
 }
 
@@ -83,6 +104,7 @@ func NewPersistentStore(path string) *Store {
 
 type persistedAccount struct {
 	UserID                   string          `json:"userId"`
+	AccountID                string          `json:"accountId,omitempty"`
 	PhoneHashB64             string          `json:"phoneHashB64"`
 	DeviceID                 int             `json:"deviceId"`
 	RegistrationID           int             `json:"registrationId"`
@@ -118,7 +140,7 @@ func (s *Store) persistLocked() {
 	}
 	for _, a := range s.accounts {
 		state.Accounts = append(state.Accounts, persistedAccount{
-			UserID: a.userID, PhoneHashB64: a.phoneHashB64, DeviceID: a.deviceID,
+			UserID: a.userID, AccountID: a.accountID, PhoneHashB64: a.phoneHashB64, DeviceID: a.deviceID,
 			RegistrationID: a.registrationID, IdentityKeyB64: a.identityKeyB64,
 			SignedPreKeyID: a.signedPreKeyID, SignedPreKeyPublicB64: a.signedPreKeyPublicB64,
 			SignedPreKeySignatureB64: a.signedPreKeySignatureB64, KyberPreKeyID: a.kyberPreKeyID,
@@ -167,8 +189,14 @@ func (s *Store) load() error {
 	}
 	for i := range state.Accounts {
 		p := state.Accounts[i]
+		// Back-compat: records written before multi-device have no accountId; a
+		// lone device is its own account.
+		accountID := p.AccountID
+		if accountID == "" {
+			accountID = p.UserID
+		}
 		s.accounts[p.UserID] = &account{
-			userID: p.UserID, phoneHashB64: p.PhoneHashB64, deviceID: p.DeviceID,
+			userID: p.UserID, accountID: accountID, phoneHashB64: p.PhoneHashB64, deviceID: p.DeviceID,
 			registrationID: p.RegistrationID, identityKeyB64: p.IdentityKeyB64,
 			signedPreKeyID: p.SignedPreKeyID, signedPreKeyPublicB64: p.SignedPreKeyPublicB64,
 			signedPreKeySignatureB64: p.SignedPreKeySignatureB64, kyberPreKeyID: p.KyberPreKeyID,
@@ -204,6 +232,7 @@ func (s *Store) register(req RegisterRequest) (userID, otp string) {
 
 	s.accounts[userID] = &account{
 		userID:                   userID,
+		accountID:                userID, // a fresh registration is its own account
 		phoneHashB64:             s.hashPhone(req.PhoneNumber),
 		deviceID:                 req.DeviceID,
 		registrationID:           req.RegistrationID,
@@ -243,6 +272,89 @@ func (s *Store) verify(userID, code string) (token string, ok bool) {
 	s.tokens[token] = userID
 	s.persistLocked()
 	return token, true
+}
+
+// createLinkToken mints a short-lived provisioning token authorizing another
+// device to join `accountID`. Called by an already-verified device.
+func (s *Store) createLinkToken(accountID string) (token string, ttl time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	token = newToken()
+	s.linkTokens[token] = linkToken{accountID: accountID, expiresAt: time.Now().Add(linkTTL)}
+	return token, linkTTL
+}
+
+// linkDevice consumes a provisioning token and registers a new device under the
+// token's account. The device is verified immediately (the token is the
+// authorization) and has no phone hash, so only the primary stays discoverable
+// by number. Returns the new device's userID, its accountID, and a bearer token.
+func (s *Store) linkDevice(token string, req RegisterRequest) (userID, accountID, bearer string, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	lt, exists := s.linkTokens[token]
+	if !exists || time.Now().After(lt.expiresAt) {
+		delete(s.linkTokens, token) // clean up an expired token
+		return "", "", "", false
+	}
+	// The account being joined must still exist.
+	if _, exists := s.accounts[lt.accountID]; !exists {
+		return "", "", "", false
+	}
+
+	userID = newUUID()
+	deviceID := req.DeviceID
+	if deviceID == 0 {
+		deviceID = 1
+	}
+	s.accounts[userID] = &account{
+		userID:                   userID,
+		accountID:                lt.accountID,
+		phoneHashB64:             "", // linked devices aren't independently discoverable
+		deviceID:                 deviceID,
+		registrationID:           req.RegistrationID,
+		identityKeyB64:           req.IdentityKeyB64,
+		signedPreKeyID:           req.SignedPreKeyID,
+		signedPreKeyPublicB64:    req.SignedPreKeyPublicB64,
+		signedPreKeySignatureB64: req.SignedPreKeySignatureB64,
+		kyberPreKeyID:            req.KyberPreKeyID,
+		kyberPreKeyPublicB64:     req.KyberPreKeyPublicB64,
+		kyberPreKeySignatureB64:  req.KyberPreKeySignatureB64,
+		oneTime:                  append([]OneTimePreKey(nil), req.OneTimePreKeys...),
+		verified:                 true,
+	}
+	bearer = newToken()
+	s.tokens[bearer] = userID
+	delete(s.linkTokens, token) // one-time use
+	s.persistLocked()
+	return userID, lt.accountID, bearer, true
+}
+
+// devicesFor returns the userIDs of every verified device sharing an accountID
+// (the primary plus any linked devices). A single-device user returns just
+// itself, so callers can always fan out over this list.
+func (s *Store) devicesFor(accountID string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []string
+	for _, a := range s.accounts {
+		if a.verified && a.accountID == accountID {
+			out = append(out, a.userID)
+		}
+	}
+	return out
+}
+
+// accountIDFor resolves a device userID to its accountID (so a recipient can
+// thread messages from any of a peer's devices under the one account).
+func (s *Store) accountIDFor(userID string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.accounts[userID]
+	if !ok || !a.verified {
+		return "", false
+	}
+	return a.accountID, true
 }
 
 // userForToken resolves a bearer token to its account userID.

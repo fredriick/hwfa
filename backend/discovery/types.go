@@ -77,6 +77,66 @@ type SaltResponse struct {
 	SaltB64 string `json:"saltB64"`
 }
 
+// LinkTokenResponse carries a short-lived device-provisioning token minted by an
+// already-verified device. The primary encodes it into the linking code the
+// secondary device consumes.
+type LinkTokenResponse struct {
+	Token        string `json:"token"`
+	ExpiresInSec int    `json:"expiresInSec"`
+}
+
+// LinkRequest joins a new device to an existing account: the provisioning token
+// plus the new device's own published key material (same shape as registration,
+// minus the phone number — a linked device isn't independently discoverable).
+type LinkRequest struct {
+	Token                    string          `json:"token"`
+	DeviceID                 int             `json:"deviceId"`
+	RegistrationID           int             `json:"registrationId"`
+	IdentityKeyB64           string          `json:"identityKeyB64"`
+	SignedPreKeyID           int             `json:"signedPreKeyId"`
+	SignedPreKeyPublicB64    string          `json:"signedPreKeyPublicB64"`
+	SignedPreKeySignatureB64 string          `json:"signedPreKeySignatureB64"`
+	KyberPreKeyID            int             `json:"kyberPreKeyId"`
+	KyberPreKeyPublicB64     string          `json:"kyberPreKeyPublicB64"`
+	KyberPreKeySignatureB64  string          `json:"kyberPreKeySignatureB64"`
+	OneTimePreKeys           []OneTimePreKey `json:"oneTimePreKeys"`
+}
+
+// asRegister adapts a LinkRequest to the RegisterRequest the store consumes
+// (the phone number is intentionally left empty).
+func (r LinkRequest) asRegister() RegisterRequest {
+	return RegisterRequest{
+		DeviceID:                 r.DeviceID,
+		RegistrationID:           r.RegistrationID,
+		IdentityKeyB64:           r.IdentityKeyB64,
+		SignedPreKeyID:           r.SignedPreKeyID,
+		SignedPreKeyPublicB64:    r.SignedPreKeyPublicB64,
+		SignedPreKeySignatureB64: r.SignedPreKeySignatureB64,
+		KyberPreKeyID:            r.KyberPreKeyID,
+		KyberPreKeyPublicB64:     r.KyberPreKeyPublicB64,
+		KyberPreKeySignatureB64:  r.KyberPreKeySignatureB64,
+		OneTimePreKeys:           r.OneTimePreKeys,
+	}
+}
+
+type LinkResponse struct {
+	UserID    string `json:"userId"`
+	AccountID string `json:"accountId"`
+	Token     string `json:"token"`
+}
+
+// DevicesResponse lists the device userIDs sharing an account, so a sender can
+// fan a message out to all of a peer's devices.
+type DevicesResponse struct {
+	Devices []string `json:"devices"`
+}
+
+// AccountResponse resolves a device userID to its accountID, so a recipient can
+// thread messages from any of a peer's devices under one conversation.
+type AccountResponse struct {
+	AccountID string `json:"accountId"`
+}
+
 // IntersectRequest is the privacy-preserving contact discovery input: the
 // client hashes each of its contacts' phone numbers with the server salt and
 // sends the hash set. The server never learns which unregistered numbers were

@@ -97,6 +97,48 @@ export class DiscoveryClient {
     return this.get(`/v1/keys/${userId}`);
   }
 
+  // --- multi-device linking ---
+
+  /** Mint a provisioning token so another device can join this account. */
+  createLinkToken(): Promise<{ token: string; expiresInSec: number }> {
+    return this.post("/v1/devices/link-token", {});
+  }
+
+  /**
+   * Join an existing account with a provisioning token, uploading this device's
+   * own key material. Stores and returns the issued bearer token + account id.
+   */
+  async linkDevice(
+    token: string,
+    publishedBundle: PublishedKeyBundle,
+    oneTimePreKeys: OneTimePreKeyPublic[],
+  ): Promise<{ userId: string; accountId: string; token: string }> {
+    const resp = await this.post<{ userId: string; accountId: string; token: string }>(
+      "/v1/devices/link",
+      { token, ...publishedBundle, oneTimePreKeys },
+      false,
+    );
+    if (!resp.token) throw new Error("device link failed");
+    this.token = resp.token;
+    return resp;
+  }
+
+  /** List the device user ids sharing an account (for send-side fanout). */
+  async listDevices(accountId: string): Promise<string[]> {
+    const { devices } = await this.get<{ devices: string[] }>(
+      `/v1/accounts/${accountId}/devices`,
+    );
+    return devices ?? [];
+  }
+
+  /** Resolve a device user id to its account id. */
+  async resolveAccount(userId: string): Promise<string> {
+    const { accountId } = await this.get<{ accountId: string }>(
+      `/v1/accounts/${userId}/account`,
+    );
+    return accountId;
+  }
+
   /** Replenish our own one-time prekey pool. */
   uploadOneTimePreKeys(oneTimePreKeys: OneTimePreKeyPublic[]): Promise<{ poolSize: number }> {
     return this.put("/v1/keys/upload", { oneTimePreKeys });

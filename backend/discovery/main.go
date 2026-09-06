@@ -52,6 +52,11 @@ func main() {
 	mux.HandleFunc("PUT /v1/keys/upload", h.uploadKeys)
 	mux.HandleFunc("GET /v1/contacts/salt", h.salt)
 	mux.HandleFunc("POST /v1/contacts/intersect", h.intersect)
+	// Multi-device linking + fanout.
+	mux.HandleFunc("POST /v1/devices/link-token", h.linkToken)
+	mux.HandleFunc("POST /v1/devices/link", h.link)
+	mux.HandleFunc("GET /v1/accounts/{accountId}/devices", h.devices)
+	mux.HandleFunc("GET /v1/accounts/{userId}/account", h.account)
 
 	if h.devOTP {
 		log.Printf("discovery: DEV mode — OTP echoed in register responses")
