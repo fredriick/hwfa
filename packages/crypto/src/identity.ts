@@ -147,6 +147,29 @@ export function generateRegistration(opts: GenerateOptions = {}): DeviceRegistra
 }
 
 /**
+ * Mint `count` additional one-time prekeys into `stores`, with ids starting at
+ * `startId`, and return their public halves for upload. Used to replenish the
+ * pool as peers consume prekeys starting sessions (registration seeds the
+ * initial pool; this tops it back up). Ids must not collide with existing keys —
+ * the caller tracks the next free id.
+ */
+export function mintOneTimePreKeys(
+  stores: InMemorySignalStores,
+  count: number,
+  startId: number,
+): OneTimePreKeyPublic[] {
+  const out: OneTimePreKeyPublic[] = [];
+  for (let i = 0; i < count; i++) {
+    const id = startId + i;
+    const kp = PrivateKey.generate();
+    const pub = kp.getPublicKey();
+    void stores.preKey.savePreKey(id, PreKeyRecord.new(id, pub, kp));
+    out.push({ id, publicB64: b64(pub.serialize()) });
+  }
+  return out;
+}
+
+/**
  * Rebuild a libsignal `PreKeyBundle` from a bundle fetched off the Discovery
  * API. This is the input to `processPreKeyBundle` (the X3DH initiator step).
  */

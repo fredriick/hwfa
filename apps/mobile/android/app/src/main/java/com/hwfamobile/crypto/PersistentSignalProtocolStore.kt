@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import android.util.Base64
 import org.signal.libsignal.protocol.IdentityKeyPair
 import org.signal.libsignal.protocol.SignalProtocolAddress
+import org.signal.libsignal.protocol.ecc.Curve
 import org.signal.libsignal.protocol.state.KyberPreKeyRecord
 import org.signal.libsignal.protocol.state.PreKeyRecord
 import org.signal.libsignal.protocol.state.SessionRecord
@@ -44,6 +45,7 @@ class PersistentSignalProtocolStore private constructor(
     private const val SIGNED = "spk:"
     private const val KYBER = "kpk:"
     private const val SESSION = "sess:"
+    private const val PK_HIGH = "pkHighWater" // highest one-time prekey id ever minted
 
     private fun enc(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.NO_WRAP)
     private fun dec(s: String): ByteArray = Base64.decode(s, Base64.NO_WRAP)
@@ -74,6 +76,31 @@ class PersistentSignalProtocolStore private constructor(
 
   private fun addrKey(prefix: String, a: SignalProtocolAddress): String =
     "$prefix${a.name}:${a.deviceId}"
+
+  /**
+   * Mint `count` fresh one-time prekeys, store them, and return the records. Ids
+   * continue past a persisted high-water mark (never past just the stored ids),
+   * so a replenished key can't collide with one that was already handed out and
+   * consumed. Used to refill the pool as peers start sessions.
+   */
+  fun mintOneTimePreKeys(count: Int): List<PreKeyRecord> {
+    var scanned = 0
+    for (key in prefs.all.keys) {
+      if (key.startsWith(PRE)) {
+        key.removePrefix(PRE).toIntOrNull()?.let { if (it > scanned) scanned = it }
+      }
+    }
+    val start = maxOf(scanned, prefs.getInt(PK_HIGH, 0)) + 1
+    val out = ArrayList<PreKeyRecord>(count)
+    for (i in 0 until count) {
+      val id = start + i
+      val record = PreKeyRecord(id, Curve.generateKeyPair())
+      storePreKey(id, record)
+      out.add(record)
+    }
+    prefs.edit().putInt(PK_HIGH, start + count - 1).apply()
+    return out
+  }
 
   /** Reload persisted records into the in-memory super without re-persisting. */
   private fun restore() {

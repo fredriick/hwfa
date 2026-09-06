@@ -15,6 +15,7 @@ import {
   encrypt,
   establishSession,
   generateRegistration,
+  mintOneTimePreKeys,
   type InMemorySignalStores,
 } from "@hwfa/crypto";
 import type {
@@ -22,23 +23,33 @@ import type {
   EncryptedMessage,
   GenerateRegistrationOptions,
   LocalRegistration,
+  OneTimePreKeyPublic,
   PublishedKeyBundle,
 } from "../crypto-provider.js";
 
 export class NodeCryptoProvider implements CryptoProvider {
   private stores: InMemorySignalStores | null = null;
+  /** Highest one-time prekey id minted so far (so replenished ids never collide). */
+  private preKeyHigh = 0;
 
   async generateRegistration(
     opts: GenerateRegistrationOptions = {},
   ): Promise<LocalRegistration> {
     const reg = generateRegistration(opts);
     this.stores = reg.stores;
+    this.preKeyHigh = reg.oneTimePreKeys.reduce((m, k) => Math.max(m, k.id), 0);
     return {
       registrationId: reg.registrationId,
       deviceId: reg.deviceId,
       publishedBundle: reg.publishedBundle,
       oneTimePreKeys: reg.oneTimePreKeys,
     };
+  }
+
+  async replenishOneTimePreKeys(count: number): Promise<OneTimePreKeyPublic[]> {
+    const keys = mintOneTimePreKeys(this.requireStores(), count, this.preKeyHigh + 1);
+    this.preKeyHigh += count;
+    return keys;
   }
 
   async establishSession(

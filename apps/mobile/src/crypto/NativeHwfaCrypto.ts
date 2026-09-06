@@ -7,12 +7,14 @@ import { NativeModules } from 'react-native';
 import type {
   EncryptedMessage,
   LocalRegistration,
+  OneTimePreKeyPublic,
   PublishedKeyBundle,
 } from '@hwfa/client';
 
 /** The native surface, mirroring HwfaCryptoModule's @ReactMethods. */
 export interface NativeHwfaCryptoSpec {
   generateRegistration(deviceId: number, oneTimeCount: number): Promise<LocalRegistration>;
+  replenishOneTimePreKeys(count: number): Promise<OneTimePreKeyPublic[]>;
   establishSession(
     peerId: string,
     peerDeviceId: number,

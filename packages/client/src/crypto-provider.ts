@@ -47,6 +47,12 @@ export interface CryptoProvider {
   /** Mint identity + prekeys and seed the local stores. Call once per device. */
   generateRegistration(opts?: GenerateRegistrationOptions): Promise<LocalRegistration>;
 
+  /**
+   * Mint `count` more one-time prekeys (private halves stored locally) and return
+   * their public halves for upload, replenishing the pool as peers consume it.
+   */
+  replenishOneTimePreKeys(count: number): Promise<OneTimePreKeyPublic[]>;
+
   /** X3DH initiator step from a peer's published bundle (before first encrypt). */
   establishSession(
     peerAccountId: string,

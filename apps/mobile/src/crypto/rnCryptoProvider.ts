@@ -21,6 +21,7 @@ import type {
   EncryptedMessage,
   GenerateRegistrationOptions,
   LocalRegistration,
+  OneTimePreKeyPublic,
   PublishedKeyBundle,
 } from '@hwfa/client';
 import { getNativeCrypto } from './NativeHwfaCrypto';
@@ -35,6 +36,10 @@ export class RNCryptoProvider implements CryptoProvider {
       opts.deviceId ?? 1,
       opts.oneTimePreKeyCount ?? DEFAULT_ONE_TIME_PREKEYS,
     );
+  }
+
+  replenishOneTimePreKeys(count: number): Promise<OneTimePreKeyPublic[]> {
+    return getNativeCrypto().replenishOneTimePreKeys(count);
   }
 
   async establishSession(

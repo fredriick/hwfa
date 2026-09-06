@@ -61,6 +61,11 @@ const RECONNECT_BACKOFF_MS = [1000, 2000, 5000, 10000, 15000];
 /** How long a peer's device list is cached before a re-fetch (send-side fanout). */
 const DEVICE_LIST_TTL_MS = 5 * 60 * 1000;
 
+/** Replenish one-time prekeys when the server pool drops below this many... */
+const PREKEY_LOW_WATER = 5;
+/** ...topping it back up to this target. */
+const PREKEY_TARGET = 20;
+
 export class HwfaClient {
   private readonly discovery: DiscoveryClient;
   private readonly crypto: CryptoProvider;
@@ -203,6 +208,26 @@ export class HwfaClient {
     this.setConnectionState("connected");
     // Re-assert our push token on every (re)connect so the relay can wake us.
     if (this.pushToken) this.relay.registerPush(this.pushToken);
+    // Top the one-time prekey pool back up if peers have drained it.
+    void this.maintainPreKeys();
+  }
+
+  /**
+   * Keep the one-time prekey pool healthy. Each new inbound session consumes one
+   * prekey server-side; when the pool runs low, X3DH falls back to no one-time
+   * key (weaker forward secrecy). This checks the server count and, if below the
+   * low-water mark, mints fresh keys and uploads their public halves. Best-effort
+   * — a failure here never blocks messaging.
+   */
+  private async maintainPreKeys(): Promise<void> {
+    try {
+      const size = await this.discovery.poolSize();
+      if (size >= PREKEY_LOW_WATER) return;
+      const keys = await this.crypto.replenishOneTimePreKeys(PREKEY_TARGET - size);
+      if (keys.length > 0) await this.discovery.uploadOneTimePreKeys(keys);
+    } catch {
+      // Offline / older backend / provider without replenish — retry next connect.
+    }
   }
 
   /** Current relay socket state. */

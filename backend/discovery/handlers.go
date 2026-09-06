@@ -116,6 +116,22 @@ func (h *handlers) fetchKeys(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, bundle)
 }
 
+// GET /v1/keys/pool — how many one-time prekeys the caller has left, so the
+// client knows whether to replenish.
+func (h *handlers) keyPool(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.bearerUser(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing or invalid token")
+		return
+	}
+	size, ok := h.store.poolSize(userID)
+	if !ok {
+		writeError(w, http.StatusNotFound, "account not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, UploadResponse{PoolSize: size})
+}
+
 // PUT /v1/keys/upload — replenish the caller's own one-time prekey pool.
 func (h *handlers) uploadKeys(w http.ResponseWriter, r *http.Request) {
 	userID, ok := h.bearerUser(r)

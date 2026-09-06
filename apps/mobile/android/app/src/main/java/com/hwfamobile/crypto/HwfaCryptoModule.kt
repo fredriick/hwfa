@@ -139,6 +139,28 @@ class HwfaCryptoModule(reactContext: ReactApplicationContext) :
     }
   }
 
+  /**
+   * Mint `count` fresh one-time prekeys and return their public halves
+   * (`[{id, publicB64}]`) for upload to Discovery. Replenishes the pool as peers
+   * consume prekeys starting sessions; the private halves stay in the store.
+   */
+  @ReactMethod
+  fun replenishOneTimePreKeys(count: Int, promise: Promise) {
+    try {
+      val s = requireStore()
+      val out = Arguments.createArray()
+      for (record in s.mintOneTimePreKeys(count)) {
+        val entry = Arguments.createMap()
+        entry.putInt("id", record.id)
+        entry.putString("publicB64", b64(record.keyPair.publicKey.serialize()))
+        out.pushMap(entry)
+      }
+      promise.resolve(out)
+    } catch (e: Exception) {
+      promise.reject("replenishOneTimePreKeys", e)
+    }
+  }
+
   /** X3DH/PQXDH initiator step from a peer's published bundle. */
   @ReactMethod
   fun establishSession(peerId: String, peerDeviceId: Int, bundle: ReadableMap, promise: Promise) {

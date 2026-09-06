@@ -402,6 +402,18 @@ func (s *Store) bundleFor(userID string) (PublishedKeyBundle, bool) {
 	return bundle, true
 }
 
+// poolSize reports how many one-time prekeys an account still has (so the client
+// can decide whether to replenish).
+func (s *Store) poolSize(userID string) (int, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	acct, ok := s.accounts[userID]
+	if !ok {
+		return 0, false
+	}
+	return len(acct.oneTime), true
+}
+
 // addOneTime appends prekeys to an account's pool and returns the new size.
 func (s *Store) addOneTime(userID string, keys []OneTimePreKey) (int, bool) {
 	s.mu.Lock()

@@ -144,6 +144,12 @@ export class DiscoveryClient {
     return this.put("/v1/keys/upload", { oneTimePreKeys });
   }
 
+  /** How many one-time prekeys we still have on the server. */
+  async poolSize(): Promise<number> {
+    const { poolSize } = await this.get<{ poolSize: number }>("/v1/keys/pool");
+    return poolSize;
+  }
+
   /** The salt clients hash their contacts with before intersect. */
   async getSalt(): Promise<string> {
     const { saltB64 } = await this.get<{ saltB64: string }>("/v1/contacts/salt");
