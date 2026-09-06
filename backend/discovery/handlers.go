@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // handlers holds the Discovery HTTP handlers over a shared Store. Registration
@@ -12,6 +14,9 @@ import (
 // require the bearer token issued at verification.
 type handlers struct {
 	store *Store
+	// sms delivers the OTP over SMS. In dev / headless tests this is the no-op
+	// log gateway; with TextBee configured it sends a real message.
+	sms SMSGateway
 	// devOTP echoes the OTP in the register response when true (DISCOVERY_DEV=1),
 	// so headless tests can verify without an SMS gateway. Off in production.
 	devOTP bool
@@ -59,9 +64,20 @@ func (h *handlers) register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userID, otp := h.store.register(req)
-	// Production: hand the OTP to an SMS gateway (Termii / Africa's Talking).
-	// Phase 1 spike: log it, and optionally echo it for headless tests.
-	log.Printf("discovery: OTP for %s (device %d): %s", userID, req.DeviceID, otp)
+	// Hand the OTP to the SMS gateway (TextBee in production; a no-op that only
+	// logs in dev). Delivery runs in the background so a slow gateway doesn't
+	// stall registration; the client proceeds to the verify step regardless.
+	log.Printf("discovery: OTP for %s (device %d) issued", userID, req.DeviceID)
+	if h.sms != nil {
+		phone := req.PhoneNumber
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			if err := h.sms.SendOTP(ctx, phone, otp); err != nil {
+				log.Printf("discovery: SMS delivery failed for %s: %v", userID, err)
+			}
+		}()
+	}
 
 	resp := RegisterResponse{UserID: userID, OTPSent: true}
 	if h.devOTP {

@@ -67,6 +67,8 @@ export class HwfaClient {
 
   private relay: RelayConnection | null = null;
   private userId: string | null = null;
+  /** Registered but not-yet-verified id, held between requestOtp and confirmOtp. */
+  private pendingUserId: string | null = null;
   private deviceId = 1;
   private pushToken: string | null = null;
 
@@ -100,8 +102,10 @@ export class HwfaClient {
   }
 
   /**
-   * Full onboarding: mint keys, register + verify the phone number with
-   * Discovery (dev-OTP path), then open the live relay socket. Returns our id.
+   * Full onboarding in one shot: mint keys, register + verify (dev-OTP path),
+   * then open the relay. Only works when Discovery echoes the OTP
+   * (DISCOVERY_DEV=1) — headless tests and dev. Production uses the two-step
+   * `requestOtp` / `confirmOtp` flow so the user can enter the SMS code.
    */
   async onboard(phoneNumber: string): Promise<string> {
     const reg = await this.crypto.generateRegistration({ deviceId: this.deviceId });
@@ -114,6 +118,36 @@ export class HwfaClient {
     this.userId = userId;
     await this.connectRelay();
     return userId;
+  }
+
+  /**
+   * Step 1 of production onboarding: mint keys and register the number, which
+   * triggers the SMS OTP. Returns the provisional user id and whether a dev OTP
+   * was echoed (so the caller can auto-fill it in dev). Does NOT connect the
+   * relay — the account isn't verified yet.
+   */
+  async requestOtp(
+    phoneNumber: string,
+  ): Promise<{ userId: string; otpSent: boolean; devOtp?: string }> {
+    const reg = await this.crypto.generateRegistration({ deviceId: this.deviceId });
+    this.deviceId = reg.deviceId;
+    const res = await this.discovery.register(reg.publishedBundle, reg.oneTimePreKeys, phoneNumber);
+    this.pendingUserId = res.userId;
+    return res;
+  }
+
+  /**
+   * Step 2 of production onboarding: submit the SMS code. On success, the
+   * account is verified, the bearer token is kept, and the relay opens. Returns
+   * our confirmed user id.
+   */
+  async confirmOtp(code: string): Promise<string> {
+    if (!this.pendingUserId) throw new Error("requestOtp() must run before confirmOtp()");
+    await this.discovery.submitOtp(this.pendingUserId, code);
+    this.userId = this.pendingUserId;
+    this.pendingUserId = null;
+    await this.connectRelay();
+    return this.userId;
   }
 
   /**

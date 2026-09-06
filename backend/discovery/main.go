@@ -6,9 +6,10 @@
 // stored only as salted hashes, and contact discovery is a hash intersection so
 // the server never learns which unregistered numbers a client queried.
 //
-// Phase 1 scope: in-memory store instead of Postgres, opaque bearer tokens
-// instead of JWTs, and a stubbed SMS gateway (OTP is logged; with
-// DISCOVERY_DEV=1 it is echoed in the register response for headless tests).
+// Phase 1 scope: in-memory store instead of Postgres and opaque bearer tokens
+// instead of JWTs. OTP delivery is real when TextBee is configured
+// (TEXTBEE_API_KEY + TEXTBEE_DEVICE_ID); otherwise the OTP is only logged, and
+// with DISCOVERY_DEV=1 it is echoed in the register response for headless tests.
 // The API surface and privacy properties are the real thing.
 package main
 
@@ -35,6 +36,7 @@ func main() {
 
 	h := &handlers{
 		store:  store,
+		sms:    gatewayFromEnv(),
 		devOTP: os.Getenv("DISCOVERY_DEV") == "1",
 	}
 
