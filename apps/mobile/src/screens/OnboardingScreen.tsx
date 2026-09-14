@@ -60,8 +60,9 @@ export function OnboardingScreen({ onOnboarded }: Props): React.JSX.Element {
     setError(null);
     try {
       const userId = await getClient().confirmOtp(code.trim());
-      // Remember this identity so the next launch resumes instead of re-registering.
-      await saveAccount(userId, phone.trim());
+      // Remember this identity + the bearer token so the next launch resumes,
+      // authenticated, instead of re-registering.
+      await saveAccount(userId, phone.trim(), getClient().discoveryToken ?? '');
       onOnboarded(userId);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -83,8 +84,8 @@ export function OnboardingScreen({ onOnboarded }: Props): React.JSX.Element {
     try {
       const { userId } = await getClient().linkWithCode(linkCode.trim());
       // A linked device shares the account but has no phone of its own; persist
-      // its own device id so the next launch resumes.
-      await saveAccount(userId, '');
+      // its own device id + bearer token so the next launch resumes authenticated.
+      await saveAccount(userId, '', getClient().discoveryToken ?? '');
       onOnboarded(userId);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

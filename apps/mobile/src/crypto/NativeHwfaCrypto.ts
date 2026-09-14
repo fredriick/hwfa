@@ -32,9 +32,9 @@ export interface NativeHwfaCryptoSpec {
     ciphertextB64: string,
   ): Promise<string>;
 
-  /** Resume support — the native store persists identity + the account id. */
+  /** Resume support — the native store persists identity + account id + token. */
   isRegistered(): Promise<boolean>;
-  saveAccount(accountId: string, phone: string): Promise<null>;
+  saveAccount(accountId: string, phone: string, token: string): Promise<null>;
   loadAccount(): Promise<SavedAccount | null>;
   reset(): Promise<null>;
 
@@ -52,6 +52,8 @@ export interface SavedAccount {
   accountId: string;
   deviceId: number;
   phone: string;
+  /** Discovery bearer token, restored so a resumed session stays authenticated. */
+  token: string;
 }
 
 const native = NativeModules.HwfaCrypto as NativeHwfaCryptoSpec | undefined;

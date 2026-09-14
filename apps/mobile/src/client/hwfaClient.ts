@@ -33,13 +33,17 @@ export function getClient(): HwfaClient {
 export async function tryResume(): Promise<string | null> {
   const account = await getNativeCrypto().loadAccount();
   if (!account) return null;
+  // Restore the Discovery bearer token BEFORE connecting, so authenticated
+  // endpoints (key fetch, contact discovery, device linking) work after a
+  // relaunch — without it they 401 until the user re-verifies.
+  if (account.token) getClient().setDiscoveryToken(account.token);
   await getClient().resume(account.accountId, account.deviceId);
   return account.accountId;
 }
 
-/** Persist the Discovery-assigned account after a successful onboarding. */
-export function saveAccount(accountId: string, phone: string): Promise<null> {
-  return getNativeCrypto().saveAccount(accountId, phone);
+/** Persist the Discovery-assigned account + bearer token after onboarding/linking. */
+export function saveAccount(accountId: string, phone: string, token: string): Promise<null> {
+  return getNativeCrypto().saveAccount(accountId, phone, token);
 }
 
 /** Persist / load the serialized conversation history (see the store). */

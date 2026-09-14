@@ -235,13 +235,20 @@ class HwfaCryptoModule(reactContext: ReactApplicationContext) :
     promise.resolve(store != null && prefs.contains(ACCOUNT_ID))
   }
 
-  /** Persist the Discovery-assigned account id + phone after onboarding. */
+  /**
+   * Persist the Discovery-assigned account id + phone + bearer token after
+   * onboarding/linking. The token is a credential for the authenticated
+   * Discovery endpoints (key fetch, contact discovery, device linking); it lives
+   * in the same Keystore-encrypted store so a resumed session can re-authenticate
+   * without re-verifying the phone number.
+   */
   @ReactMethod
-  fun saveAccount(accountId: String, phone: String, promise: Promise) {
+  fun saveAccount(accountId: String, phone: String, token: String, promise: Promise) {
     try {
       prefs.edit()
         .putString(ACCOUNT_ID, accountId)
         .putString(ACCOUNT_PHONE, phone)
+        .putString(ACCOUNT_TOKEN, token)
         .putInt(ACCOUNT_DEVICE, localDeviceId)
         .apply()
       promise.resolve(null)
@@ -263,6 +270,7 @@ class HwfaCryptoModule(reactContext: ReactApplicationContext) :
       result.putString("accountId", accountId)
       result.putInt("deviceId", prefs.getInt(ACCOUNT_DEVICE, localDeviceId))
       result.putString("phone", prefs.getString(ACCOUNT_PHONE, "") ?: "")
+      result.putString("token", prefs.getString(ACCOUNT_TOKEN, "") ?: "")
       promise.resolve(result)
     } catch (e: Exception) {
       promise.reject("loadAccount", e)
@@ -332,6 +340,7 @@ class HwfaCryptoModule(reactContext: ReactApplicationContext) :
   companion object {
     private const val ACCOUNT_ID = "account:id"
     private const val ACCOUNT_PHONE = "account:phone"
+    private const val ACCOUNT_TOKEN = "account:token"
     private const val ACCOUNT_DEVICE = "account:device"
     private const val MESSAGES = "messages"
     private const val REPORTS = "reports"

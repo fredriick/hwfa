@@ -113,6 +113,16 @@ export class HwfaClient {
     return this.userId;
   }
 
+  /** The Discovery bearer token from onboarding/linking, to persist for resume. */
+  get discoveryToken(): string | null {
+    return this.discovery.bearerToken;
+  }
+
+  /** Restore a persisted Discovery bearer token (on resume, before any authed call). */
+  setDiscoveryToken(token: string): void {
+    this.discovery.setToken(token);
+  }
+
   /**
    * Full onboarding in one shot: mint keys, register + verify (dev-OTP path),
    * then open the relay. Only works when Discovery echoes the OTP
