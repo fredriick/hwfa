@@ -29,7 +29,7 @@ func TestPersistentStore_SurvivesRestart(t *testing.T) {
 
 	// First boot: register + verify an account.
 	s1 := NewPersistentStore(path)
-	uid, otp := s1.register(sampleReq("+2348011112222"))
+	uid, otp, _ := s1.register(sampleReq("+2348011112222"))
 	if _, ok := s1.verify(uid, otp); !ok {
 		t.Fatal("verify failed on first boot")
 	}
@@ -56,7 +56,7 @@ func TestPersistentStore_SurvivesRestart(t *testing.T) {
 // An in-memory store (no path) must not touch the disk and stays ephemeral.
 func TestInMemoryStore_NoPersistence(t *testing.T) {
 	s := NewStore()
-	uid, otp := s.register(sampleReq("+2348010000001"))
+	uid, otp, _ := s.register(sampleReq("+2348010000001"))
 	if _, ok := s.verify(uid, otp); !ok {
 		t.Fatal("verify failed")
 	}
@@ -70,7 +70,7 @@ func TestPersistentStore_ConsumedPrekeyNotReissued(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "disc.json")
 
 	s1 := NewPersistentStore(path)
-	uid, otp := s1.register(sampleReq("+2348011112222"))
+	uid, otp, _ := s1.register(sampleReq("+2348011112222"))
 	s1.verify(uid, otp)
 	b1, _ := s1.bundleFor(uid) // consumes the single one-time prekey
 	if b1.OneTimePreKeyID == nil {

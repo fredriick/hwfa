@@ -63,7 +63,11 @@ func (h *handlers) register(w http.ResponseWriter, r *http.Request) {
 		req.DeviceID = 1
 	}
 
-	userID, otp := h.store.register(req)
+	userID, otp, ok := h.store.register(req)
+	if !ok {
+		writeError(w, http.StatusTooManyRequests, "a code was just sent — wait a moment before retrying")
+		return
+	}
 	// Hand the OTP to the SMS gateway (TextBee in production; a no-op that only
 	// logs in dev). Delivery runs in the background so a slow gateway doesn't
 	// stall registration; the client proceeds to the verify step regardless.

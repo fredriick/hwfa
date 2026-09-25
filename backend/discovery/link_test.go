@@ -8,7 +8,7 @@ import "testing"
 func TestLinkDeviceJoinsAccount(t *testing.T) {
 	s := NewStore()
 
-	primary, otp := s.register(sampleReq("+2348011112222"))
+	primary, otp, _ := s.register(sampleReq("+2348011112222"))
 	if _, ok := s.verify(primary, otp); !ok {
 		t.Fatal("primary verify failed")
 	}
@@ -57,7 +57,7 @@ func TestLinkDeviceJoinsAccount(t *testing.T) {
 // sender can always fan out over the list.
 func TestDevicesForSingleDevice(t *testing.T) {
 	s := NewStore()
-	uid, otp := s.register(sampleReq("+2348010000001"))
+	uid, otp, _ := s.register(sampleReq("+2348010000001"))
 	s.verify(uid, otp)
 
 	devices := s.devicesFor(uid)
@@ -69,7 +69,7 @@ func TestDevicesForSingleDevice(t *testing.T) {
 // An unknown or reused link token is rejected (one-time use).
 func TestLinkTokenIsSingleUse(t *testing.T) {
 	s := NewStore()
-	primary, otp := s.register(sampleReq("+2348011112222"))
+	primary, otp, _ := s.register(sampleReq("+2348011112222"))
 	s.verify(primary, otp)
 
 	token, _ := s.createLinkToken(primary)

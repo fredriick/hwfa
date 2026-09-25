@@ -6,7 +6,7 @@ import "testing"
 // out (each consumes one) and grows when the client replenishes.
 func TestPoolSizeTracksConsumptionAndReplenish(t *testing.T) {
 	s := NewStore()
-	uid, otp := s.register(sampleReq("+2348011112222"))
+	uid, otp, _ := s.register(sampleReq("+2348011112222"))
 	s.verify(uid, otp)
 
 	// sampleReq seeds exactly one one-time prekey.

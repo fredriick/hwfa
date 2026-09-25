@@ -17,10 +17,29 @@ import (
 // device mints it. Short by design: the code is meant to be used immediately.
 const linkTTL = 5 * time.Minute
 
+// OTP hardening: a code expires, survives only a few wrong guesses, and a phone
+// can't be spammed with new codes faster than the cooldown. Without these an
+// attacker who knows a userID can brute-force the 6-digit code (10^6) to seize
+// the account bound to a victim's number.
+const (
+	otpTTL           = 10 * time.Minute
+	maxOTPAttempts   = 5
+	registerCooldown = 30 * time.Second
+)
+
 // linkToken authorizes one secondary device to join an existing account.
 type linkToken struct {
 	accountID string
 	expiresAt time.Time
+}
+
+// pendingOTP is a code awaiting verification, with an expiry and a wrong-guess
+// counter so it can't be brute-forced. In-memory only (short-lived; dropping it
+// on restart just means the user re-requests a code — safer than persisting).
+type pendingOTP struct {
+	code      string
+	expiresAt time.Time
+	attempts  int
 }
 
 // account is the server-side record for one registered device. It holds the
@@ -62,9 +81,11 @@ type Store struct {
 	mu       sync.Mutex
 	path     string              // persistence file; "" = in-memory only
 	salt     []byte
-	accounts map[string]*account // userID -> account (one per device)
-	pending  map[string]string   // userID -> OTP code awaiting verification
-	tokens   map[string]string   // bearer token -> userID
+	accounts map[string]*account    // userID -> account (one per device)
+	pending  map[string]*pendingOTP // userID -> code awaiting verification (in-memory)
+	tokens   map[string]string      // bearer token -> userID
+	// lastRegister throttles OTP sends per phone hash (SMS-bomb / cost guard).
+	lastRegister map[string]time.Time
 	// linkTokens are ephemeral device-provisioning codes (not persisted; they
 	// expire in minutes, so losing them on restart is fine).
 	linkTokens map[string]linkToken // link token -> {accountID, expiry}
@@ -77,11 +98,12 @@ func NewStore() *Store {
 		panic("discovery: cannot read random salt: " + err.Error())
 	}
 	return &Store{
-		salt:       salt,
-		accounts:   make(map[string]*account),
-		pending:    make(map[string]string),
-		tokens:     make(map[string]string),
-		linkTokens: make(map[string]linkToken),
+		salt:         salt,
+		accounts:     make(map[string]*account),
+		pending:      make(map[string]*pendingOTP),
+		tokens:       make(map[string]string),
+		lastRegister: make(map[string]time.Time),
+		linkTokens:   make(map[string]linkToken),
 	}
 }
 
@@ -122,8 +144,10 @@ type persistedAccount struct {
 type persistedState struct {
 	SaltB64  string             `json:"saltB64"`
 	Accounts []persistedAccount `json:"accounts"`
-	Pending  map[string]string  `json:"pending"`
-	Tokens   map[string]string  `json:"tokens"`
+	// Pending OTPs are intentionally NOT persisted (short-lived; a restart just
+	// means the user re-requests a code). Tokens are persisted so a verified
+	// session survives a restart.
+	Tokens map[string]string `json:"tokens"`
 }
 
 // persistLocked writes the current state to disk. Caller must hold s.mu. No-op
@@ -134,7 +158,6 @@ func (s *Store) persistLocked() {
 	}
 	state := persistedState{
 		SaltB64:  s.saltB64(),
-		Pending:  s.pending,
 		Tokens:   s.tokens,
 		Accounts: make([]persistedAccount, 0, len(s.accounts)),
 	}
@@ -181,9 +204,6 @@ func (s *Store) load() error {
 		return err
 	}
 	s.salt = salt
-	if state.Pending != nil {
-		s.pending = state.Pending
-	}
 	if state.Tokens != nil {
 		s.tokens = state.Tokens
 	}
@@ -222,10 +242,17 @@ func (s *Store) hashPhone(phone string) string {
 
 // register stores a new unverified account and returns its userID plus the OTP
 // the client must echo back to verify. The raw phone is hashed immediately and
-// not retained.
-func (s *Store) register(req RegisterRequest) (userID, otp string) {
+// not retained. Returns ok=false (without touching state) when the same number
+// requested a code within the cooldown, so a number can't be SMS-bombed.
+func (s *Store) register(req RegisterRequest) (userID, otp string, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	phoneHash := s.hashPhone(req.PhoneNumber)
+	if last, seen := s.lastRegister[phoneHash]; seen && time.Since(last) < registerCooldown {
+		return "", "", false
+	}
+	s.lastRegister[phoneHash] = time.Now()
 
 	userID = newUUID()
 	otp = newOTP()
@@ -233,7 +260,7 @@ func (s *Store) register(req RegisterRequest) (userID, otp string) {
 	s.accounts[userID] = &account{
 		userID:                   userID,
 		accountID:                userID, // a fresh registration is its own account
-		phoneHashB64:             s.hashPhone(req.PhoneNumber),
+		phoneHashB64:             phoneHash,
 		deviceID:                 req.DeviceID,
 		registrationID:           req.RegistrationID,
 		identityKeyB64:           req.IdentityKeyB64,
@@ -246,19 +273,32 @@ func (s *Store) register(req RegisterRequest) (userID, otp string) {
 		oneTime:                  append([]OneTimePreKey(nil), req.OneTimePreKeys...),
 		verified:                 false,
 	}
-	s.pending[userID] = otp
+	s.pending[userID] = &pendingOTP{code: otp, expiresAt: time.Now().Add(otpTTL)}
 	s.persistLocked()
-	return userID, otp
+	return userID, otp, true
 }
 
 // verify checks the OTP for an account. On success it marks the account
-// verified and issues a bearer token bound to the userID.
+// verified and issues a bearer token. A code that is expired, or has been
+// guessed wrong too many times, is discarded — forcing the client to request a
+// fresh one — so the 6-digit space can't be brute-forced.
 func (s *Store) verify(userID, code string) (token string, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	want, pending := s.pending[userID]
-	if !pending || want != code {
+	p := s.pending[userID]
+	if p == nil {
+		return "", false
+	}
+	if time.Now().After(p.expiresAt) {
+		delete(s.pending, userID)
+		return "", false
+	}
+	if p.code != code {
+		p.attempts++
+		if p.attempts >= maxOTPAttempts {
+			delete(s.pending, userID) // too many wrong guesses — burn the code
+		}
 		return "", false
 	}
 	acct, exists := s.accounts[userID]
