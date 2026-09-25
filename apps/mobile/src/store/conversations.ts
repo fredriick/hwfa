@@ -100,6 +100,8 @@ export interface Conversation {
   lastAt: number;
   /** Present ⇒ this is a group (peerUserId is the group id, not a peer). */
   group?: GroupInfo;
+  /** Peer's identity public key (base64), cached for the safety-number check. */
+  peerIdentityB64?: string;
 }
 
 type Listener = () => void;
@@ -186,6 +188,15 @@ class ConversationStore {
     } catch {
       // Corrupt/absent blob: start empty rather than crash.
     }
+  }
+
+  /** Cache the peer's identity key (base64) on the thread for safety-number checks. */
+  setPeerIdentity(peerUserId: string, identityB64: string): void {
+    const conv = this.convs.get(peerUserId);
+    if (!conv || conv.peerIdentityB64 === identityB64) return;
+    conv.peerIdentityB64 = identityB64;
+    this.rebuild();
+    this.emit();
   }
 
   /** Ensure a thread exists (e.g. right after discovering a peer by phone). */

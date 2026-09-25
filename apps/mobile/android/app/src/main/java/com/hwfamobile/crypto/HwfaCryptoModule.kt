@@ -161,6 +161,17 @@ class HwfaCryptoModule(reactContext: ReactApplicationContext) :
     }
   }
 
+  /** Our identity public key (base64) — the input to safety-number computation. */
+  @ReactMethod
+  fun getIdentityPublicKey(promise: Promise) {
+    try {
+      val s = requireStore()
+      promise.resolve(b64(s.identityKeyPair.publicKey.serialize()))
+    } catch (e: Exception) {
+      promise.reject("getIdentityPublicKey", e)
+    }
+  }
+
   /** X3DH/PQXDH initiator step from a peer's published bundle. */
   @ReactMethod
   fun establishSession(peerId: String, peerDeviceId: Int, bundle: ReadableMap, promise: Promise) {

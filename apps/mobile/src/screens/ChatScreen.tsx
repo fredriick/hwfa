@@ -161,9 +161,10 @@ interface Props {
   peerUserId: string;
   peerPhone?: string;
   onBack: () => void;
+  onVerify?: (peerUserId: string, peerPhone?: string) => void;
 }
 
-export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.Element {
+export function ChatScreen({ peerUserId, peerPhone, onBack, onVerify }: Props): React.JSX.Element {
   const messages = useMessages(peerUserId);
   const conversations = useConversations();
   const group = conversations.find(c => c.peerUserId === peerUserId)?.group;
@@ -292,6 +293,11 @@ export function ChatScreen({ peerUserId, peerPhone, onBack }: Props): React.JSX.
         </View>
         {!group && (
           <View style={styles.callButtons}>
+            {onVerify && (
+              <TouchableOpacity hitSlop={8} onPress={() => onVerify(peerUserId, peerPhone)}>
+                <Text style={styles.callGlyph}>🛡</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               hitSlop={8}
               onPress={() => void callManager.start(peerUserId, peerPhone, false)}>

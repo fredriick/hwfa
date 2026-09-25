@@ -15,6 +15,8 @@ import type {
 export interface NativeHwfaCryptoSpec {
   generateRegistration(deviceId: number, oneTimeCount: number): Promise<LocalRegistration>;
   replenishOneTimePreKeys(count: number): Promise<OneTimePreKeyPublic[]>;
+  /** Our identity public key (base64), for safety-number computation. */
+  getIdentityPublicKey(): Promise<string>;
   establishSession(
     peerId: string,
     peerDeviceId: number,

@@ -90,6 +90,8 @@ export class HwfaClient {
 
   /** Peers we already have an outbound session with, and their device id. */
   private readonly peerDevice = new Map<string, number>();
+  /** Peer identity public keys (base64) learned from fetched bundles, for safety numbers. */
+  private readonly peerIdentity = new Map<string, string>();
   /** Cached device lists per peer account (for send-side fanout), with fetch time. */
   private readonly peerDevices = new Map<string, { devices: string[]; at: number }>();
   private readonly textHandlers: TextHandler[] = [];
@@ -295,6 +297,25 @@ export class HwfaClient {
     }, delay);
   }
 
+  /** Our own identity public key (base64), for computing a safety number. */
+  localIdentityKey(): Promise<string> {
+    return this.crypto.localIdentityKey();
+  }
+
+  /**
+   * A peer's identity public key (base64), if we've fetched their bundle this
+   * session. Null when we haven't started a session with them yet (e.g. an
+   * inbound-first peer we've never sent to) — send a message first.
+   */
+  peerIdentityKey(peerUserId: string): string | null {
+    return this.peerIdentity.get(peerUserId) ?? null;
+  }
+
+  /** Seed a peer identity restored from persistence (so safety numbers survive a restart). */
+  setPeerIdentityKey(peerUserId: string, identityKeyB64: string): void {
+    this.peerIdentity.set(peerUserId, identityKeyB64);
+  }
+
   /** Look up a contact by phone number (salted-hash intersection). */
   async findContact(phoneNumber: string): Promise<string | null> {
     const salt = await this.discovery.getSalt();
@@ -464,6 +485,7 @@ export class HwfaClient {
     const bundle = await this.discovery.fetchBundle(peerUserId);
     await this.crypto.establishSession(peerUserId, bundle.deviceId, bundle);
     this.peerDevice.set(peerUserId, bundle.deviceId);
+    this.peerIdentity.set(peerUserId, bundle.identityKeyB64);
     return bundle.deviceId;
   }
 

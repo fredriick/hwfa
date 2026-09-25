@@ -53,6 +53,9 @@ export interface CryptoProvider {
    */
   replenishOneTimePreKeys(count: number): Promise<OneTimePreKeyPublic[]>;
 
+  /** Our own identity public key (base64), for computing safety numbers. */
+  localIdentityKey(): Promise<string>;
+
   /** X3DH initiator step from a peer's published bundle (before first encrypt). */
   establishSession(
     peerAccountId: string,

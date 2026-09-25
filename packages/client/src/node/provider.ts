@@ -31,6 +31,11 @@ export class NodeCryptoProvider implements CryptoProvider {
   private stores: InMemorySignalStores | null = null;
   /** Highest one-time prekey id minted so far (so replenished ids never collide). */
   private preKeyHigh = 0;
+  private identityKeyB64 = "";
+
+  async localIdentityKey(): Promise<string> {
+    return this.identityKeyB64;
+  }
 
   async generateRegistration(
     opts: GenerateRegistrationOptions = {},
@@ -38,6 +43,7 @@ export class NodeCryptoProvider implements CryptoProvider {
     const reg = generateRegistration(opts);
     this.stores = reg.stores;
     this.preKeyHigh = reg.oneTimePreKeys.reduce((m, k) => Math.max(m, k.id), 0);
+    this.identityKeyB64 = reg.publishedBundle.identityKeyB64;
     return {
       registrationId: reg.registrationId,
       deviceId: reg.deviceId,

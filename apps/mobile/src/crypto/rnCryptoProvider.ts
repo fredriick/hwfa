@@ -42,6 +42,10 @@ export class RNCryptoProvider implements CryptoProvider {
     return getNativeCrypto().replenishOneTimePreKeys(count);
   }
 
+  localIdentityKey(): Promise<string> {
+    return getNativeCrypto().getIdentityPublicKey();
+  }
+
   async establishSession(
     peerAccountId: string,
     peerDeviceId: number,

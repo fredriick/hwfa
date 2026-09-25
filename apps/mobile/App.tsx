@@ -19,6 +19,7 @@ import { SettingsScreen } from './src/screens/SettingsScreen';
 import { StarredScreen } from './src/screens/StarredScreen';
 import { NewGroupScreen } from './src/screens/NewGroupScreen';
 import { LinkDeviceScreen } from './src/screens/LinkDeviceScreen';
+import { SafetyNumberScreen } from './src/screens/SafetyNumberScreen';
 import { CallOverlay } from './src/screens/CallScreen';
 import { callManager } from './src/call/manager';
 import { conversationStore } from './src/store/conversations';
@@ -40,6 +41,7 @@ type Screen =
   | { name: 'starred' }
   | { name: 'newgroup' }
   | { name: 'linkdevice' }
+  | { name: 'safety'; peerUserId: string; peerPhone?: string }
   | { name: 'chat'; peerUserId: string; peerPhone?: string };
 
 function App(): React.JSX.Element {
@@ -174,6 +176,19 @@ function App(): React.JSX.Element {
             peerUserId={screen.peerUserId}
             peerPhone={screen.peerPhone}
             onBack={() => setScreen({ name: 'home' })}
+            onVerify={(peerUserId, peerPhone) =>
+              setScreen({ name: 'safety', peerUserId, peerPhone })
+            }
+          />
+        )}
+
+        {screen.name === 'safety' && (
+          <SafetyNumberScreen
+            peerUserId={screen.peerUserId}
+            peerPhone={screen.peerPhone}
+            onBack={() =>
+              setScreen({ name: 'chat', peerUserId: screen.peerUserId, peerPhone: screen.peerPhone })
+            }
           />
         )}
       </SafeAreaView>

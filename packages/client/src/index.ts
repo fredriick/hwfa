@@ -7,6 +7,7 @@
  * `@hwfa/client/node`; React Native supplies its own native provider.
  */
 export { HwfaClient, hashPhone } from "./client.js";
+export { safetyNumber } from "./safety-number.js";
 export type {
   HwfaClientOptions,
   IncomingText,
