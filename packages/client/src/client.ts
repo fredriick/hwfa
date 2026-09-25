@@ -124,6 +124,17 @@ export class HwfaClient {
   }
 
   /**
+   * Permanently delete this account server-side (all its devices, key bundles,
+   * and directory entry), then tear down the relay. The caller is responsible
+   * for wiping local key material + history afterwards.
+   */
+  async deleteAccount(): Promise<void> {
+    await this.discovery.deleteAccount();
+    this.userId = null;
+    this.close();
+  }
+
+  /**
    * Full onboarding in one shot: mint keys, register + verify (dev-OTP path),
    * then open the relay. Only works when Discovery echoes the OTP
    * (DISCOVERY_DEV=1) — headless tests and dev. Production uses the two-step

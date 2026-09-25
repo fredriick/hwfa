@@ -39,3 +39,30 @@ func TestPoolSizeUnknownAccount(t *testing.T) {
 		t.Error("poolSize should report not-found for an unknown account")
 	}
 }
+
+// Deleting an account purges every device on it plus its directory entry: the
+// bundle is gone, the number no longer intersects, and a linked device vanishes.
+func TestDeleteAccountPurgesEverything(t *testing.T) {
+	s := NewStore()
+	primary, otp, _ := s.register(sampleReq("+2348011112222"))
+	s.verify(primary, otp)
+	token, _ := s.createLinkToken(primary)
+	linked, _, _, _ := s.linkDevice(token, sampleReq(""))
+
+	if !s.deleteAccount(primary) {
+		t.Fatal("deleteAccount should succeed for a real account")
+	}
+
+	if _, ok := s.bundleFor(primary); ok {
+		t.Error("primary bundle should be gone after deletion")
+	}
+	if _, ok := s.accountIDFor(linked); ok {
+		t.Error("linked device should be gone after deletion")
+	}
+	if m := s.intersect([]string{s.hashPhone("+2348011112222")}); len(m) != 0 {
+		t.Errorf("number should not intersect after deletion, got %v", m)
+	}
+	if s.deleteAccount(primary) {
+		t.Error("deleting an already-deleted account should report not-found")
+	}
+}

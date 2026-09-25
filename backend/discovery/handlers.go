@@ -120,6 +120,22 @@ func (h *handlers) fetchKeys(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, bundle)
 }
 
+// DELETE /v1/accounts — purge the caller's whole account (all its devices, key
+// material, and directory entry). The client also wipes local state; relay-queued
+// ciphertext and R2 objects are opaque-keyed and age out separately.
+func (h *handlers) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.bearerUser(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing or invalid token")
+		return
+	}
+	if !h.store.deleteAccount(userID) {
+		writeError(w, http.StatusNotFound, "account not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // GET /v1/keys/pool — how many one-time prekeys the caller has left, so the
 // client knows whether to replenish.
 func (h *handlers) keyPool(w http.ResponseWriter, r *http.Request) {

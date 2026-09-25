@@ -394,6 +394,30 @@ func (s *Store) accountIDFor(userID string) (string, bool) {
 	return a.accountID, true
 }
 
+// deleteAccount purges the caller's whole account: every device sharing its
+// accountID (their key bundles + one-time prekeys + directory entry) plus any
+// pending OTP and the phone-hash cooldown. After this the number resolves to
+// nobody in contact discovery and no key material remains. Bearer tokens are
+// stateless, so any outstanding ones simply stop resolving to a live account.
+func (s *Store) deleteAccount(userID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	caller, ok := s.accounts[userID]
+	if !ok {
+		return false
+	}
+	accountID := caller.accountID
+	for id, a := range s.accounts {
+		if a.accountID == accountID {
+			delete(s.lastRegister, a.phoneHashB64)
+			delete(s.pending, id)
+			delete(s.accounts, id)
+		}
+	}
+	s.persistLocked()
+	return true
+}
+
 // userForToken resolves a bearer token to its account userID by verifying its
 // signature + expiry (stateless — no server-side token store).
 func (s *Store) userForToken(token string) (string, bool) {

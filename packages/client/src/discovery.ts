@@ -165,6 +165,15 @@ export class DiscoveryClient {
     return matches;
   }
 
+  /** Purge the caller's account server-side (204, no body). Clears our token. */
+  async deleteAccount(): Promise<void> {
+    const headers: Record<string, string> = {};
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+    const res = await this.fetchImpl(`${this.baseUrl}/v1/accounts`, { method: "DELETE", headers });
+    if (!res.ok) throw new DiscoveryError(res.status, "/v1/accounts", await res.text());
+    this.token = null;
+  }
+
   // --- transport ---
 
   private async post<T>(pathname: string, body: unknown, auth = true): Promise<T> {

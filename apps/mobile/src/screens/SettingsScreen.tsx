@@ -112,6 +112,35 @@ export function SettingsScreen({ myUserId, onBack, onLinkDevice, onSignedOut }: 
     onSignedOut();
   }
 
+  function confirmDeleteAccount() {
+    Alert.alert(
+      'Delete your account?',
+      'This permanently deletes your account and keys from the server, and erases everything on this device. Your number can no longer be found on Hwfa. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete account', style: 'destructive', onPress: () => void deleteAccount() },
+      ],
+    );
+  }
+
+  async function deleteAccount() {
+    // Purge server-side first; if that fails, keep local state so the user can
+    // retry (rather than being locked out with a live server account).
+    try {
+      await getClient().deleteAccount();
+    } catch (e) {
+      Alert.alert('Could not delete account', e instanceof Error ? e.message : String(e));
+      return;
+    }
+    await conversationStore.reset();
+    try {
+      await getNativeCrypto().reset();
+    } catch {
+      /* ignore */
+    }
+    onSignedOut();
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -163,6 +192,7 @@ export function SettingsScreen({ myUserId, onBack, onLinkDevice, onSignedOut }: 
 
         <Section title="Danger zone">
           <Row label="Sign out & erase this device" danger onPress={confirmSignOut} />
+          <Row label="Delete my account" danger onPress={confirmDeleteAccount} />
         </Section>
 
         <Text style={styles.footer}>

@@ -160,4 +160,9 @@ test("HwfaClient: onboard, discover, and exchange E2EE texts through the real se
   await bob.sendText(aliceId, "Got it, ratchet works ✅");
   await until(() => aliceInbox.length === 1);
   assert.equal(aliceInbox[0]!.text, "Got it, ratchet works ✅", "Alice decrypts Bob's reply");
+
+  // 5) Alice deletes her account server-side; her number no longer resolves.
+  await alice.deleteAccount();
+  const gone = await bob.findContact(ALICE_PHONE);
+  assert.equal(gone, null, "Alice's number no longer resolves after account deletion");
 });
