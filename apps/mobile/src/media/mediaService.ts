@@ -15,9 +15,11 @@ import {
   type MediaReference,
 } from '@hwfa/client';
 import { rnMediaCipher, bytesToBase64 } from './rnMediaCipher';
+import { getClient } from '../client/hwfaClient';
 import { config } from '../config';
 
-const service = new HttpMediaService(config.mediaUrl);
+// The media service requires the Discovery bearer token; supply it per request.
+const service = new HttpMediaService(config.mediaUrl, undefined, () => getClient().discoveryToken);
 
 /** Encrypt + upload; returns the reference to embed in the E2EE message body. */
 export function uploadImage(media: MediaPlaintext): Promise<MediaReference> {

@@ -41,14 +41,16 @@ export class RelayConnection {
 
   constructor(
     private readonly relayUrl: string,
-    private readonly userId: string,
+    // The signed bearer token; the relay derives our identity from it (we no
+    // longer send a client-supplied userId, which anyone could forge).
+    private readonly token: string,
     private readonly deviceId: number,
     private readonly webSocketCtor: WebSocketCtor,
     private readonly handlers: RelayHandlers,
   ) {}
 
   connect(): Promise<void> {
-    const url = `${this.relayUrl}?userId=${encodeURIComponent(this.userId)}&deviceId=${this.deviceId}`;
+    const url = `${this.relayUrl}?token=${encodeURIComponent(this.token)}&deviceId=${this.deviceId}`;
     const ws = new this.webSocketCtor(url);
     this.ws = ws;
 

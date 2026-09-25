@@ -19,7 +19,10 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 	"time"
+
+	"hwfa/authtoken"
 )
 
 const (
@@ -34,7 +37,8 @@ var locatorPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 type server struct {
 	cfg    signerConfig
 	bucket string
-	ready  bool // false when R2 is not configured
+	ready  bool   // false when R2 is not configured
+	secret []byte // verifies the caller's bearer token
 }
 
 func newServer() *server {
@@ -53,7 +57,19 @@ func newServer() *server {
 		},
 		bucket: bucket,
 		ready:  ready,
+		secret: authtoken.SecretFromEnv(),
 	}
+}
+
+// authed reports whether the request carries a valid Discovery bearer token.
+// Without this, anyone could mint presigned PUT URLs and write to the bucket.
+func (s *server) authed(r *http.Request) bool {
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return false
+	}
+	_, ok := authtoken.Verify(s.secret, strings.TrimSpace(strings.TrimPrefix(auth, "Bearer ")))
+	return ok
 }
 
 func (s *server) objectPath(key string) string {
@@ -67,7 +83,11 @@ type uploadURLResponse struct {
 }
 
 // POST /v1/media/upload-url — mint an object key + a presigned PUT URL.
-func (s *server) uploadURL(w http.ResponseWriter, _ *http.Request) {
+func (s *server) uploadURL(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(r) {
+		http.Error(w, `{"error":"missing or invalid token"}`, http.StatusUnauthorized)
+		return
+	}
 	if !s.ready {
 		http.Error(w, `{"error":"media storage not configured"}`, http.StatusServiceUnavailable)
 		return
@@ -84,6 +104,10 @@ type downloadURLResponse struct {
 
 // GET /v1/media/download-url?locator=<key> — presign a GET for an object.
 func (s *server) downloadURL(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(r) {
+		http.Error(w, `{"error":"missing or invalid token"}`, http.StatusUnauthorized)
+		return
+	}
 	if !s.ready {
 		http.Error(w, `{"error":"media storage not configured"}`, http.StatusServiceUnavailable)
 		return

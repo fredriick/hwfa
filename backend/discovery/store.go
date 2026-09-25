@@ -11,7 +11,13 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"hwfa/authtoken"
 )
+
+// tokenTTL bounds a leaked bearer token's lifetime. Long enough that a resumed
+// session rarely needs re-verification; a refresh flow is a later addition.
+const tokenTTL = 30 * 24 * time.Hour
 
 // linkTTL is how long a device-provisioning token stays valid after the primary
 // device mints it. Short by design: the code is meant to be used immediately.
@@ -83,7 +89,9 @@ type Store struct {
 	salt     []byte
 	accounts map[string]*account    // userID -> account (one per device)
 	pending  map[string]*pendingOTP // userID -> code awaiting verification (in-memory)
-	tokens   map[string]string      // bearer token -> userID
+	// secret signs bearer tokens; they're stateless (HMAC), so there is no
+	// server-side token store to keep or persist.
+	secret []byte
 	// lastRegister throttles OTP sends per phone hash (SMS-bomb / cost guard).
 	lastRegister map[string]time.Time
 	// linkTokens are ephemeral device-provisioning codes (not persisted; they
@@ -101,7 +109,7 @@ func NewStore() *Store {
 		salt:         salt,
 		accounts:     make(map[string]*account),
 		pending:      make(map[string]*pendingOTP),
-		tokens:       make(map[string]string),
+		secret:       authtoken.SecretFromEnv(),
 		lastRegister: make(map[string]time.Time),
 		linkTokens:   make(map[string]linkToken),
 	}
@@ -144,10 +152,8 @@ type persistedAccount struct {
 type persistedState struct {
 	SaltB64  string             `json:"saltB64"`
 	Accounts []persistedAccount `json:"accounts"`
-	// Pending OTPs are intentionally NOT persisted (short-lived; a restart just
-	// means the user re-requests a code). Tokens are persisted so a verified
-	// session survives a restart.
-	Tokens map[string]string `json:"tokens"`
+	// Neither pending OTPs (short-lived) nor bearer tokens (stateless, HMAC-signed)
+	// are persisted — there is no server-side token store to keep.
 }
 
 // persistLocked writes the current state to disk. Caller must hold s.mu. No-op
@@ -158,7 +164,6 @@ func (s *Store) persistLocked() {
 	}
 	state := persistedState{
 		SaltB64:  s.saltB64(),
-		Tokens:   s.tokens,
 		Accounts: make([]persistedAccount, 0, len(s.accounts)),
 	}
 	for _, a := range s.accounts {
@@ -204,9 +209,6 @@ func (s *Store) load() error {
 		return err
 	}
 	s.salt = salt
-	if state.Tokens != nil {
-		s.tokens = state.Tokens
-	}
 	for i := range state.Accounts {
 		p := state.Accounts[i]
 		// Back-compat: records written before multi-device have no accountId; a
@@ -307,11 +309,8 @@ func (s *Store) verify(userID, code string) (token string, ok bool) {
 	}
 	acct.verified = true
 	delete(s.pending, userID)
-
-	token = newToken()
-	s.tokens[token] = userID
 	s.persistLocked()
-	return token, true
+	return authtoken.Sign(s.secret, userID, tokenTTL), true
 }
 
 // createLinkToken mints a short-lived provisioning token authorizing another
@@ -363,11 +362,9 @@ func (s *Store) linkDevice(token string, req RegisterRequest) (userID, accountID
 		oneTime:                  append([]OneTimePreKey(nil), req.OneTimePreKeys...),
 		verified:                 true,
 	}
-	bearer = newToken()
-	s.tokens[bearer] = userID
 	delete(s.linkTokens, token) // one-time use
 	s.persistLocked()
-	return userID, lt.accountID, bearer, true
+	return userID, lt.accountID, authtoken.Sign(s.secret, userID, tokenTTL), true
 }
 
 // devicesFor returns the userIDs of every verified device sharing an accountID
@@ -397,12 +394,10 @@ func (s *Store) accountIDFor(userID string) (string, bool) {
 	return a.accountID, true
 }
 
-// userForToken resolves a bearer token to its account userID.
+// userForToken resolves a bearer token to its account userID by verifying its
+// signature + expiry (stateless — no server-side token store).
 func (s *Store) userForToken(token string) (string, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	userID, ok := s.tokens[token]
-	return userID, ok
+	return authtoken.Verify(s.secret, token)
 }
 
 // bundleFor returns a peer's published bundle, consuming one one-time prekey

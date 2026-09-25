@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"hwfa/authtoken"
 )
 
 var upgrader = websocket.Upgrader{
@@ -61,13 +62,20 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	// /v1/relay?userId=<uuid>&deviceId=<n>
-	// Phase 1 replaces the query params with a short-lived JWT (silent refresh).
+	secret := authtoken.SecretFromEnv()
+
+	// /v1/relay?token=<signed>&deviceId=<n>
+	// The identity comes from the verified token — NOT a client-supplied userId —
+	// so a client can only connect as (and send/receive as) itself.
 	mux.HandleFunc("/v1/relay", func(w http.ResponseWriter, r *http.Request) {
-		userID := r.URL.Query().Get("userId")
 		deviceID, err := strconv.Atoi(r.URL.Query().Get("deviceId"))
-		if userID == "" || err != nil {
-			http.Error(w, "missing userId or deviceId", http.StatusBadRequest)
+		if err != nil {
+			http.Error(w, "missing deviceId", http.StatusBadRequest)
+			return
+		}
+		userID, ok := authtoken.Verify(secret, r.URL.Query().Get("token"))
+		if !ok {
+			http.Error(w, "missing or invalid token", http.StatusUnauthorized)
 			return
 		}
 

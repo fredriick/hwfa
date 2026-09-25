@@ -40,11 +40,20 @@ export class HttpMediaService implements MediaService {
   constructor(
     private readonly baseUrl: string,
     private readonly fetchImpl: FetchLike = fetch as unknown as FetchLike,
+    // Supplies the caller's bearer token; the media service now requires it on
+    // both presign endpoints, so an unauthenticated client can't mint URLs.
+    private readonly getToken: () => string | null = () => null,
   ) {}
+
+  private authHeaders(): Record<string, string> {
+    const token = this.getToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
 
   async uploadUrl(): Promise<{ url: string; locator: string; expiresIn: number }> {
     const res = await this.fetchImpl(`${this.baseUrl}/v1/media/upload-url`, {
       method: "POST",
+      headers: this.authHeaders(),
     });
     if (!res.ok) throw new Error(`media upload-url failed: ${res.status}`);
     return res.json();
@@ -53,6 +62,7 @@ export class HttpMediaService implements MediaService {
   async downloadUrl(locator: string): Promise<{ url: string; expiresIn: number }> {
     const res = await this.fetchImpl(
       `${this.baseUrl}/v1/media/download-url?locator=${encodeURIComponent(locator)}`,
+      { headers: this.authHeaders() },
     );
     if (!res.ok) throw new Error(`media download-url failed: ${res.status}`);
     return res.json();

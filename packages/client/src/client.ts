@@ -187,12 +187,14 @@ export class HwfaClient {
   /** Open (or reuse) the relay socket under our onboarded identity. */
   async connectRelay(): Promise<void> {
     if (!this.userId) throw new Error("onboard() before connecting the relay");
+    const token = this.discovery.bearerToken;
+    if (!token) throw new Error("no auth token — verify (or restore a saved token) before connecting");
     if (this.relay) return;
     this.intentionalClose = false;
     this.setConnectionState("connecting");
     this.relay = new RelayConnection(
       this.relayUrl,
-      this.userId,
+      token,
       this.deviceId,
       this.webSocketCtor,
       {
