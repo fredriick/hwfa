@@ -17,6 +17,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+
+	"hwfa/authtoken"
 )
 
 func main() {
@@ -34,10 +36,16 @@ func main() {
 		store = NewStore()
 	}
 
+	devOTP := os.Getenv("DISCOVERY_DEV") == "1"
+	// Fail closed: the accept-any/echoed-OTP dev path must never run in prod.
+	if devOTP && authtoken.IsProduction() {
+		log.Fatal("discovery: DISCOVERY_DEV must not be set when HWFA_ENV=production")
+	}
+
 	h := &handlers{
 		store:  store,
 		sms:    gatewayFromEnv(),
-		devOTP: os.Getenv("DISCOVERY_DEV") == "1",
+		devOTP: devOTP,
 	}
 
 	mux := http.NewServeMux()

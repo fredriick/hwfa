@@ -14,6 +14,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
 	"strings"
@@ -62,14 +63,36 @@ func Verify(secret []byte, token string) (uid string, ok bool) {
 	return c.UID, true
 }
 
-// SecretFromEnv returns the shared signing secret from HWFA_TOKEN_SECRET, or the
-// insecure dev fallback (with a loud warning) when unset. Call once at startup.
-func SecretFromEnv() []byte {
-	if s := os.Getenv("HWFA_TOKEN_SECRET"); s != "" {
-		return []byte(s)
+// IsProduction reports whether the service is running in production
+// (HWFA_ENV=production), which turns dev conveniences into hard failures.
+func IsProduction() bool { return os.Getenv("HWFA_ENV") == "production" }
+
+// resolveSecret is the pure decision behind SecretFromEnv, split out so it can
+// be tested without a process-exiting log.Fatal: in production a missing secret
+// is an error; in dev it falls back to the shared insecure constant.
+func resolveSecret(envSecret string, prod bool) ([]byte, error) {
+	if envSecret != "" {
+		return []byte(envSecret), nil
 	}
-	log.Printf("authtoken: HWFA_TOKEN_SECRET unset — using the INSECURE dev secret (never in production)")
-	return []byte(devSecret)
+	if prod {
+		return nil, errors.New("HWFA_TOKEN_SECRET must be set in production")
+	}
+	return []byte(devSecret), nil
+}
+
+// SecretFromEnv returns the shared signing secret from HWFA_TOKEN_SECRET. In
+// production a missing secret is fatal; in dev it falls back to the insecure
+// constant with a loud warning. Call once at startup.
+func SecretFromEnv() []byte {
+	env := os.Getenv("HWFA_TOKEN_SECRET")
+	b, err := resolveSecret(env, IsProduction())
+	if err != nil {
+		log.Fatalf("authtoken: %v", err)
+	}
+	if env == "" {
+		log.Printf("authtoken: HWFA_TOKEN_SECRET unset — using the INSECURE dev secret (never in production)")
+	}
+	return b
 }
 
 func mac(secret []byte, msg string) []byte {

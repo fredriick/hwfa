@@ -13,7 +13,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -23,8 +25,32 @@ import (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
-	// Phase 0: allow all origins. Production pins the app origins + uses JWT.
-	CheckOrigin: func(r *http.Request) bool { return true },
+	// CheckOrigin is set in main() from the environment (see originAllowed).
+}
+
+// originAllowed decides whether a WebSocket upgrade may proceed. In dev, any
+// origin is fine. In production, native mobile clients (which send no Origin
+// header) are allowed, and any browser Origin must be in the allowlist
+// (HWFA_ALLOWED_ORIGINS) — so a hostile web page can't open relay sockets.
+func originAllowed(origin string, prod bool, allowed []string) bool {
+	if !prod {
+		return true
+	}
+	if origin == "" {
+		return true // native app: no Origin header
+	}
+	return slices.Contains(allowed, origin)
+}
+
+func allowedOriginsFromEnv() []string {
+	raw := strings.Split(os.Getenv("HWFA_ALLOWED_ORIGINS"), ",")
+	out := make([]string, 0, len(raw))
+	for _, o := range raw {
+		if o = strings.TrimSpace(o); o != "" {
+			out = append(out, o)
+		}
+	}
+	return out
 }
 
 func nowMillis() int64 { return time.Now().UnixMilli() }
@@ -63,6 +89,12 @@ func main() {
 	})
 
 	secret := authtoken.SecretFromEnv()
+
+	prod := authtoken.IsProduction()
+	allowedOrigins := allowedOriginsFromEnv()
+	upgrader.CheckOrigin = func(r *http.Request) bool {
+		return originAllowed(r.Header.Get("Origin"), prod, allowedOrigins)
+	}
 
 	// /v1/relay?token=<signed>&deviceId=<n>
 	// The identity comes from the verified token — NOT a client-supplied userId —

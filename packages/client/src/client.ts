@@ -61,10 +61,11 @@ const RECONNECT_BACKOFF_MS = [1000, 2000, 5000, 10000, 15000];
 /** How long a peer's device list is cached before a re-fetch (send-side fanout). */
 const DEVICE_LIST_TTL_MS = 5 * 60 * 1000;
 
-/** Replenish one-time prekeys when the server pool drops below this many... */
-const PREKEY_LOW_WATER = 5;
-/** ...topping it back up to this target. */
-const PREKEY_TARGET = 20;
+/** Replenish one-time prekeys when the server pool drops to this floor (the
+ *  spec's hard-alert threshold)... */
+const PREKEY_LOW_WATER = 20;
+/** ...topping it back up to this target, so there's headroom above the floor. */
+const PREKEY_TARGET = 50;
 
 export class HwfaClient {
   private readonly discovery: DiscoveryClient;
