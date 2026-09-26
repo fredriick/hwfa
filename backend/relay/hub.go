@@ -5,7 +5,24 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 )
+
+// Offline-queue retention. Undelivered ciphertext is dropped after the TTL, and
+// a single recipient's queue is capped so an authenticated sender can't grow it
+// without bound (memory-exhaustion guard). TTL is measured from server enqueue
+// time — never the client-set Envelope.Timestamp, which is spoofable.
+const (
+	queueTTL             = 30 * 24 * time.Hour
+	maxQueuePerRecipient = 1000
+)
+
+// queuedEnvelope pairs an undelivered envelope with the server time it was
+// queued, so retention doesn't depend on the client's timestamp.
+type queuedEnvelope struct {
+	Env        Envelope `json:"env"`
+	EnqueuedAt int64    `json:"enqueuedAt"` // server unix ms
+}
 
 // Hub is the routing core: it tracks which recipient devices are currently
 // connected and holds a store-and-forward queue for offline ones.
@@ -17,18 +34,18 @@ import (
 // never inspects Ciphertext — the persisted blob is opaque envelopes.
 type Hub struct {
 	mu         sync.Mutex
-	path       string                // persistence file; "" = in-memory only
-	conns      map[string]*Client    // routeKey -> live connection
-	queue      map[string][]Envelope // routeKey -> undelivered envelopes
-	pushTokens map[string]string     // routeKey -> FCM token (in-memory)
-	pusher     Pusher                // nil = push disabled
+	path       string                      // persistence file; "" = in-memory only
+	conns      map[string]*Client          // routeKey -> live connection
+	queue      map[string][]queuedEnvelope // routeKey -> undelivered envelopes
+	pushTokens map[string]string           // routeKey -> FCM token (in-memory)
+	pusher     Pusher                      // nil = push disabled
 	nextID     uint64
 }
 
 func NewHub() *Hub {
 	return &Hub{
 		conns:      make(map[string]*Client),
-		queue:      make(map[string][]Envelope),
+		queue:      make(map[string][]queuedEnvelope),
 		pushTokens: make(map[string]string),
 	}
 }
@@ -66,8 +83,38 @@ func NewPersistentHub(path string) *Hub {
 // --- persistence ---
 
 type persistedHub struct {
-	NextID uint64                `json:"nextId"`
-	Queue  map[string][]Envelope `json:"queue"`
+	NextID uint64                      `json:"nextId"`
+	Queue  map[string][]queuedEnvelope `json:"queue"`
+}
+
+// pruneQueueLocked trims one recipient's queue: drop envelopes older than the
+// TTL (by server enqueue time), then cap the count, keeping the newest. Caller
+// holds h.mu. Returns whether anything was dropped.
+func (h *Hub) pruneQueueLocked(key string) bool {
+	q := h.queue[key]
+	if len(q) == 0 {
+		return false
+	}
+	cutoff := nowMillis() - queueTTL.Milliseconds()
+	kept := make([]queuedEnvelope, 0, len(q))
+	for _, qe := range q {
+		if qe.EnqueuedAt < cutoff {
+			continue // expired
+		}
+		kept = append(kept, qe)
+	}
+	if len(kept) > maxQueuePerRecipient {
+		kept = kept[len(kept)-maxQueuePerRecipient:] // keep the newest
+	}
+	if len(kept) == len(q) {
+		return false
+	}
+	if len(kept) == 0 {
+		delete(h.queue, key)
+	} else {
+		h.queue[key] = kept
+	}
+	return true
 }
 
 // persistLocked writes the queue to disk atomically. Caller must hold h.mu.
@@ -107,6 +154,10 @@ func (h *Hub) load() error {
 	if state.Queue != nil {
 		h.queue = state.Queue
 	}
+	// Drop anything that aged past the TTL while the relay was down.
+	for key := range h.queue {
+		h.pruneQueueLocked(key)
+	}
 	return nil
 }
 
@@ -115,6 +166,7 @@ func (h *Hub) load() error {
 func (h *Hub) register(c *Client) {
 	h.mu.Lock()
 	h.conns[c.routeKey] = c
+	h.pruneQueueLocked(c.routeKey) // don't deliver anything past the TTL
 	pending := h.queue[c.routeKey]
 	if len(pending) > 0 {
 		delete(h.queue, c.routeKey)
@@ -123,7 +175,8 @@ func (h *Hub) register(c *Client) {
 	h.mu.Unlock()
 
 	log.Printf("client connected: %s (%d queued)", c.routeKey, len(pending))
-	for _, env := range pending {
+	for i := range pending {
+		env := pending[i].Env
 		c.send(RelayMessage{Kind: "deliver", Envelope: &env})
 	}
 }
@@ -149,7 +202,8 @@ func (h *Hub) route(env Envelope) string {
 	target := h.conns[key]
 	var pushToken string
 	if target == nil {
-		h.queue[key] = append(h.queue[key], env)
+		h.queue[key] = append(h.queue[key], queuedEnvelope{Env: env, EnqueuedAt: nowMillis()})
+		h.pruneQueueLocked(key) // enforce TTL + per-recipient cap
 		pushToken = h.pushTokens[key]
 	}
 	// Persist so both the queue (offline case) and nextID (envelope-id

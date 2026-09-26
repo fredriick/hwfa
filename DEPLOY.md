@@ -83,10 +83,11 @@ behaviour so demos and headless tests run with zero config.
   numbers or message content anywhere.
 - **Account deletion** (`DELETE /v1/accounts`) purges the account's devices, key
   bundles, and directory entry; the client also wipes local state.
-- **Still needs a retention policy:** relay-queued ciphertext and R2 media
-  objects are opaque-keyed/E2EE and are not purged per-account — configure a
-  **TTL / lifecycle rule** (e.g. an R2 object-expiry lifecycle on `hwfa-media`,
-  and a max-age sweep on the relay queue).
+- **Relay queue retention:** undelivered ciphertext ages out via a built-in
+  **30-day TTL**, and each recipient's queue is **capped** (memory-exhaustion
+  guard) — pruned on enqueue, on flush, and on load.
+- **R2 media objects** are opaque-keyed/E2EE and not purged per-account —
+  configure an **object-expiry lifecycle rule** on the `hwfa-media` bucket.
 - **TODO:** set the CORS policy on the `hwfa-media` R2 bucket for the web client.
 
 ---
@@ -104,7 +105,7 @@ behaviour so demos and headless tests run with zero config.
 | Media encryption (R2 unreadable without key) | ✅ client-side AES-256-GCM; R2 holds ciphertext |
 | One-time prekey auto-replenishment (alert at 20) | ✅ refill floor 20 / target 50 on connect |
 | Safety-number UI (out-of-band verify) | ✅ shipped (🛡 in the 1:1 chat header) |
-| Account deletion end-to-end | ✅ server purge + local wipe (relay/media TTL pending — §6) |
+| Account deletion end-to-end | ✅ server purge + local wipe; relay queue has a 30-day TTL, R2 lifecycle pending (§6) |
 | OTP brute-force protection | ✅ expiry + attempt cap + register cooldown |
 | Relay & media authentication | ✅ signed bearer tokens (§3) |
 | Contact-discovery enumeration | ⏳ **#4 pending** — client-side-hash discovery with a client-known salt is enumerable; the real fix is a PSI/enclave design (Phase-2+). Rate-limit + monitor `intersect` meanwhile |

@@ -36,8 +36,8 @@ func TestPersistentHub_QueueSurvivesRestart(t *testing.T) {
 	if got := len(h2.queue[routeKey("bob", 1)]); got != 1 {
 		t.Fatalf("queued message not restored: got %d, want 1", got)
 	}
-	if h2.queue[routeKey("bob", 1)][0].ID != id {
-		t.Fatalf("restored envelope id mismatch: %s != %s", h2.queue[routeKey("bob", 1)][0].ID, id)
+	if h2.queue[routeKey("bob", 1)][0].Env.ID != id {
+		t.Fatalf("restored envelope id mismatch: %s != %s", h2.queue[routeKey("bob", 1)][0].Env.ID, id)
 	}
 
 	// nextID persisted, so a new message gets a fresh (non-colliding) id.
@@ -62,6 +62,41 @@ func TestPersistentHub_FlushPersists(t *testing.T) {
 	h2 := NewPersistentHub(path)
 	if got := len(h2.queue[routeKey("bob", 1)]); got != 0 {
 		t.Fatalf("flushed queue reappeared after restart: got %d, want 0", got)
+	}
+}
+
+// A queued envelope older than the TTL is not delivered when the recipient
+// connects — it's pruned on flush.
+func TestHub_ExpiredQueueEntryPruned(t *testing.T) {
+	h := NewHub()
+	h.route(sampleEnvelope("bob")) // bob offline → queued now
+	key := routeKey("bob", 1)
+
+	// Backdate the queued entry past the TTL.
+	h.mu.Lock()
+	h.queue[key][0].EnqueuedAt = nowMillis() - queueTTL.Milliseconds() - 1000
+	h.mu.Unlock()
+
+	c := &Client{hub: h, routeKey: key, userID: "bob", deviceID: 1, out: make(chan RelayMessage, 4)}
+	h.register(c)
+
+	select {
+	case msg := <-c.out:
+		t.Fatalf("expired message should not be delivered, got %+v", msg)
+	default:
+		// nothing delivered — correct
+	}
+}
+
+// A recipient's queue is capped: once it exceeds the cap, only the newest are
+// retained.
+func TestHub_QueueCappedPerRecipient(t *testing.T) {
+	h := NewHub()
+	for i := 0; i < maxQueuePerRecipient+50; i++ {
+		h.route(sampleEnvelope("bob")) // bob offline → all queued
+	}
+	if got := len(h.queue[routeKey("bob", 1)]); got != maxQueuePerRecipient {
+		t.Fatalf("queue not capped: got %d, want %d", got, maxQueuePerRecipient)
 	}
 }
 
