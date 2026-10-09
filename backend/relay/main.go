@@ -105,8 +105,8 @@ func main() {
 			http.Error(w, "missing deviceId", http.StatusBadRequest)
 			return
 		}
-		userID, kind, ok := authtoken.Verify(secret, r.URL.Query().Get("token"))
-		if !ok || kind != authtoken.KindAccess {
+		userID, exp, ok := authtoken.VerifyAccess(secret, r.URL.Query().Get("token"))
+		if !ok {
 			http.Error(w, "missing or invalid token", http.StatusUnauthorized)
 			return
 		}
@@ -115,6 +115,14 @@ func main() {
 		if err != nil {
 			log.Printf("upgrade failed: %v", err)
 			return
+		}
+
+		// Bound the session to the access token's lifetime: close the socket when
+		// the token expires. A legit client refreshes + reconnects; a revoked
+		// device can't refresh, so its live session can't outlive the token.
+		if d := time.Until(time.Unix(exp, 0)); d > 0 {
+			t := time.AfterFunc(d, func() { _ = conn.Close() })
+			defer t.Stop() // the handler returns when the socket drops anyway
 		}
 
 		client := newClient(hub, conn, userID, deviceID)

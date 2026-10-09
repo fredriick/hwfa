@@ -48,29 +48,49 @@ func Sign(secret []byte, uid, kind string, ttl time.Duration) string {
 	return p + "." + b64(mac(secret, p))
 }
 
-// Verify checks the signature and expiry, returning the uid and kind on success.
-func Verify(secret []byte, token string) (uid, kind string, ok bool) {
+// parse verifies the signature and expiry, returning the decoded claims.
+func parse(secret []byte, token string) (claims, bool) {
 	parts := strings.SplitN(token, ".", 2)
 	if len(parts) != 2 {
-		return "", "", false
+		return claims{}, false
 	}
 	expected := b64(mac(secret, parts[0]))
 	// Constant-time comparison so a timing side-channel can't forge the MAC.
 	if !hmac.Equal([]byte(expected), []byte(parts[1])) {
-		return "", "", false
+		return claims{}, false
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return "", "", false
+		return claims{}, false
 	}
 	var c claims
 	if err := json.Unmarshal(raw, &c); err != nil {
-		return "", "", false
+		return claims{}, false
 	}
 	if time.Now().Unix() >= c.Exp {
+		return claims{}, false
+	}
+	return c, true
+}
+
+// Verify checks the signature and expiry, returning the uid and kind on success.
+func Verify(secret []byte, token string) (uid, kind string, ok bool) {
+	c, ok := parse(secret, token)
+	if !ok {
 		return "", "", false
 	}
 	return c.UID, c.Kind, true
+}
+
+// VerifyAccess verifies an access token (signature, expiry, kind=access) and
+// also returns its expiry (unix seconds) — the relay uses the expiry to close a
+// socket when its token lapses, bounding a revoked device's live session.
+func VerifyAccess(secret []byte, token string) (uid string, exp int64, ok bool) {
+	c, ok := parse(secret, token)
+	if !ok || c.Kind != KindAccess {
+		return "", 0, false
+	}
+	return c.UID, c.Exp, true
 }
 
 // IsProduction reports whether the service is running in production

@@ -68,9 +68,10 @@ behaviour so demos and headless tests run with zero config.
   restored on resume.
 - **Revocation:** `refresh` succeeds only while the account/device still exists,
   so revoking a linked device or deleting an account stops new access within the
-  access TTL (≤15 min) — no server-side token store needed. Caveat: an
-  already-connected relay socket (authenticated at upgrade) stays up until it
-  drops; a mid-session kill of a live socket is future work.
+  access TTL (≤15 min) — no server-side token store needed. The relay also
+  **closes each socket when its access token expires**, so a revoked device's
+  live session can't outlive the token either (it can't refresh to reconnect);
+  legit clients refresh + reconnect automatically.
 
 ## 4. TLS & networking
 - Terminate TLS at a reverse proxy in front of all three services; clients must

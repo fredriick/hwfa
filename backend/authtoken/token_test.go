@@ -47,6 +47,24 @@ func TestVerifyReportsKind(t *testing.T) {
 	}
 }
 
+func TestVerifyAccess(t *testing.T) {
+	secret := []byte("test-secret")
+	want := time.Now().Add(15 * time.Minute).Unix()
+	access := Sign(secret, "u", KindAccess, 15*time.Minute)
+	uid, exp, ok := VerifyAccess(secret, access)
+	if !ok || uid != "u" {
+		t.Fatalf("VerifyAccess = (%q, %d, %v), want (u, ~, true)", uid, exp, ok)
+	}
+	if exp < want-2 || exp > want+2 {
+		t.Errorf("exp = %d, want ~%d", exp, want)
+	}
+	// A refresh token must not pass VerifyAccess.
+	refresh := Sign(secret, "u", KindRefresh, time.Hour)
+	if _, _, ok := VerifyAccess(secret, refresh); ok {
+		t.Error("a refresh token must not verify as access")
+	}
+}
+
 func TestResolveSecret(t *testing.T) {
 	if b, err := resolveSecret("abc", false); err != nil || string(b) != "abc" {
 		t.Errorf("dev+set = (%q,%v), want (abc,nil)", b, err)
