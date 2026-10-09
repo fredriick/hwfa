@@ -9,7 +9,7 @@ func TestLinkDeviceJoinsAccount(t *testing.T) {
 	s := NewStore()
 
 	primary, otp, _ := s.register(sampleReq("+2348011112222"))
-	if _, ok := s.verify(primary, otp); !ok {
+	if _, _, ok := s.verify(primary, otp); !ok {
 		t.Fatal("primary verify failed")
 	}
 
@@ -19,7 +19,7 @@ func TestLinkDeviceJoinsAccount(t *testing.T) {
 	}
 
 	linkReq := sampleReq("") // phone ignored on link
-	secondary, accountID, bearer, ok := s.linkDevice(token, linkReq)
+	secondary, accountID, bearer, _, ok := s.linkDevice(token, linkReq)
 	if !ok {
 		t.Fatal("linkDevice failed")
 	}
@@ -73,13 +73,13 @@ func TestLinkTokenIsSingleUse(t *testing.T) {
 	s.verify(primary, otp)
 
 	token, _ := s.createLinkToken(primary)
-	if _, _, _, ok := s.linkDevice(token, sampleReq("")); !ok {
+	if _, _, _, _, ok := s.linkDevice(token, sampleReq("")); !ok {
 		t.Fatal("first link should succeed")
 	}
-	if _, _, _, ok := s.linkDevice(token, sampleReq("")); ok {
+	if _, _, _, _, ok := s.linkDevice(token, sampleReq("")); ok {
 		t.Fatal("reusing a link token must fail")
 	}
-	if _, _, _, ok := s.linkDevice("not-a-real-token", sampleReq("")); ok {
+	if _, _, _, _, ok := s.linkDevice("not-a-real-token", sampleReq("")); ok {
 		t.Fatal("unknown link token must fail")
 	}
 }
@@ -91,7 +91,7 @@ func TestAccountDevicesAndRemove(t *testing.T) {
 	primary, otp, _ := s.register(sampleReq("+2348011112222"))
 	s.verify(primary, otp)
 	token, _ := s.createLinkToken(primary)
-	linked, _, _, _ := s.linkDevice(token, sampleReq(""))
+	linked, _, _, _, _ := s.linkDevice(token, sampleReq(""))
 
 	devices := s.accountDevices(primary)
 	if len(devices) != 2 {

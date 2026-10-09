@@ -33,7 +33,7 @@ func TestMediaEndpointsRequireToken(t *testing.T) {
 	}
 
 	// Valid token → past the auth gate (503 because R2 isn't configured here).
-	tok := authtoken.Sign(authtoken.SecretFromEnv(), "user-1", time.Hour)
+	tok := authtoken.Sign(authtoken.SecretFromEnv(), "user-1", authtoken.KindAccess, time.Hour)
 	req = httptest.NewRequest(http.MethodPost, "/v1/media/upload-url", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	rec = httptest.NewRecorder()

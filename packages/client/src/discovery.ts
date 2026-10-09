@@ -34,21 +34,66 @@ export class DiscoveryError extends Error {
 }
 
 export class DiscoveryClient {
-  private token: string | null = null;
+  private token: string | null = null; // short-lived access token
+  private refresh_: string | null = null; // long-lived refresh token
+  private refreshing: Promise<void> | null = null; // de-dupes concurrent refreshes
 
   constructor(
     private readonly baseUrl: string,
     private readonly fetchImpl: FetchLike = fetch,
   ) {}
 
-  /** The bearer token issued at verify time, if this client has onboarded. */
+  /** The current access token, if this client has onboarded. */
   get bearerToken(): string | null {
     return this.token;
   }
 
-  /** Restore a previously persisted token (e.g. from secure storage on launch). */
+  /** The current refresh token (persist it alongside the access token). */
+  get refreshToken(): string | null {
+    return this.refresh_;
+  }
+
+  /** Restore a previously persisted access token (legacy single-token path). */
   setToken(token: string): void {
     this.token = token;
+  }
+
+  /** Restore persisted access + refresh tokens (e.g. on launch/resume). */
+  setTokens(access: string, refresh: string): void {
+    this.token = access;
+    this.refresh_ = refresh;
+  }
+
+  /**
+   * Ensure the access token is fresh enough to use, refreshing it from the
+   * refresh token if it's missing or within 60s of expiry. No-op when there's
+   * no refresh token (legacy / not onboarded).
+   */
+  async ensureAccess(): Promise<void> {
+    if (!this.refresh_) return;
+    if (this.token && !expiringSoon(this.token)) return;
+    await this.refresh();
+  }
+
+  /** Exchange the refresh token for a fresh access (+ rotated refresh) token. */
+  async refresh(): Promise<void> {
+    if (!this.refresh_) throw new Error("no refresh token");
+    // Collapse concurrent refreshes into one in-flight request.
+    if (this.refreshing) return this.refreshing;
+    this.refreshing = (async () => {
+      try {
+        const resp = await this.post<{ token: string; refreshToken: string }>(
+          "/v1/auth/refresh",
+          { refreshToken: this.refresh_ },
+          false,
+        );
+        this.token = resp.token;
+        if (resp.refreshToken) this.refresh_ = resp.refreshToken;
+      } finally {
+        this.refreshing = null;
+      }
+    })();
+    return this.refreshing;
   }
 
   /**
@@ -89,13 +134,14 @@ export class DiscoveryClient {
 
   /** Step 2 of onboarding: verify the OTP; stores + returns the bearer token. */
   async submitOtp(userId: string, code: string): Promise<string> {
-    const resp = await this.post<{ verified: boolean; token: string }>(
+    const resp = await this.post<{ verified: boolean; token: string; refreshToken: string }>(
       "/v1/accounts/verify",
       { userId, code },
       false,
     );
     if (!resp.verified || !resp.token) throw new Error("OTP verification failed");
     this.token = resp.token;
+    this.refresh_ = resp.refreshToken ?? null;
     return resp.token;
   }
 
@@ -119,14 +165,16 @@ export class DiscoveryClient {
     token: string,
     publishedBundle: PublishedKeyBundle,
     oneTimePreKeys: OneTimePreKeyPublic[],
-  ): Promise<{ userId: string; accountId: string; token: string }> {
-    const resp = await this.post<{ userId: string; accountId: string; token: string }>(
-      "/v1/devices/link",
-      { token, ...publishedBundle, oneTimePreKeys },
-      false,
-    );
+  ): Promise<{ userId: string; accountId: string; token: string; refreshToken: string }> {
+    const resp = await this.post<{
+      userId: string;
+      accountId: string;
+      token: string;
+      refreshToken: string;
+    }>("/v1/devices/link", { token, ...publishedBundle, oneTimePreKeys }, false);
     if (!resp.token) throw new Error("device link failed");
     this.token = resp.token;
+    this.refresh_ = resp.refreshToken ?? null;
     return resp;
   }
 
@@ -217,6 +265,7 @@ export class DiscoveryClient {
     pathname: string,
     body: unknown,
     auth: boolean,
+    retried = false,
   ): Promise<T> {
     const headers: Record<string, string> = {};
     if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -226,7 +275,38 @@ export class DiscoveryClient {
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
+    // An expired access token → refresh once and retry transparently.
+    if (res.status === 401 && auth && !retried && this.refresh_) {
+      try {
+        await this.refresh();
+      } catch {
+        throw new DiscoveryError(res.status, pathname, await res.text());
+      }
+      return this.request<T>(method, pathname, body, auth, true);
+    }
     if (!res.ok) throw new DiscoveryError(res.status, pathname, await res.text());
     return (await res.json()) as T;
   }
+}
+
+/** True if a signed token's `exp` claim is missing or within 60s. Best-effort
+ *  decode of the base64url payload; a malformed token counts as expiring. */
+function expiringSoon(token: string): boolean {
+  const dot = token.indexOf(".");
+  if (dot <= 0) return true;
+  try {
+    const json = decodeBase64Url(token.slice(0, dot));
+    const exp = (JSON.parse(json) as { exp?: number }).exp;
+    if (typeof exp !== "number") return true;
+    return exp * 1000 - Date.now() < 60_000;
+  } catch {
+    return true;
+  }
+}
+
+function decodeBase64Url(s: string): string {
+  let b64 = s.replace(/-/g, "+").replace(/_/g, "/");
+  while (b64.length % 4) b64 += "=";
+  if (typeof atob === "function") return atob(b64);
+  return Buffer.from(b64, "base64").toString("binary");
 }

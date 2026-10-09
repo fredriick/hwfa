@@ -26,41 +26,51 @@ import (
 // set HWFA_TOKEN_SECRET (see SecretFromEnv).
 const devSecret = "hwfa-dev-insecure-shared-secret-change-me"
 
+// Token kinds. Access tokens are short-lived and authorize API/relay/media
+// calls; refresh tokens are long-lived and only buy a new access token (so
+// revoking a device kills access within the access TTL — see the discovery
+// refresh handler).
+const (
+	KindAccess  = "access"
+	KindRefresh = "refresh"
+)
+
 type claims struct {
-	UID string `json:"uid"`
-	Exp int64  `json:"exp"` // unix seconds
+	UID  string `json:"uid"`
+	Kind string `json:"k"`
+	Exp  int64  `json:"exp"` // unix seconds
 }
 
-// Sign returns a signed token for uid, valid for ttl.
-func Sign(secret []byte, uid string, ttl time.Duration) string {
-	payload, _ := json.Marshal(claims{UID: uid, Exp: time.Now().Add(ttl).Unix()})
+// Sign returns a signed token of the given kind for uid, valid for ttl.
+func Sign(secret []byte, uid, kind string, ttl time.Duration) string {
+	payload, _ := json.Marshal(claims{UID: uid, Kind: kind, Exp: time.Now().Add(ttl).Unix()})
 	p := b64(payload)
 	return p + "." + b64(mac(secret, p))
 }
 
-// Verify checks the signature and expiry, returning the uid on success.
-func Verify(secret []byte, token string) (uid string, ok bool) {
+// Verify checks the signature and expiry, returning the uid and kind on success.
+func Verify(secret []byte, token string) (uid, kind string, ok bool) {
 	parts := strings.SplitN(token, ".", 2)
 	if len(parts) != 2 {
-		return "", false
+		return "", "", false
 	}
 	expected := b64(mac(secret, parts[0]))
 	// Constant-time comparison so a timing side-channel can't forge the MAC.
 	if !hmac.Equal([]byte(expected), []byte(parts[1])) {
-		return "", false
+		return "", "", false
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return "", false
+		return "", "", false
 	}
 	var c claims
 	if err := json.Unmarshal(raw, &c); err != nil {
-		return "", false
+		return "", "", false
 	}
 	if time.Now().Unix() >= c.Exp {
-		return "", false
+		return "", "", false
 	}
-	return c.UID, true
+	return c.UID, c.Kind, true
 }
 
 // IsProduction reports whether the service is running in production

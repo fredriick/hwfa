@@ -59,8 +59,21 @@ type VerifyRequest struct {
 }
 
 type VerifyResponse struct {
-	Verified bool   `json:"verified"`
-	Token    string `json:"token"`
+	Verified     bool   `json:"verified"`
+	Token        string `json:"token"`        // short-lived access token
+	RefreshToken string `json:"refreshToken"` // long-lived, buys new access tokens
+}
+
+// RefreshRequest trades a refresh token for a fresh access token (and a rotated
+// refresh token). Not bearer-authed — the refresh token in the body is the
+// credential.
+type RefreshRequest struct {
+	RefreshToken string `json:"refreshToken"`
+}
+
+type RefreshResponse struct {
+	Token        string `json:"token"`
+	RefreshToken string `json:"refreshToken"`
 }
 
 // UploadRequest replenishes a device's one-time prekey pool. Authenticated via
@@ -120,9 +133,10 @@ func (r LinkRequest) asRegister() RegisterRequest {
 }
 
 type LinkResponse struct {
-	UserID    string `json:"userId"`
-	AccountID string `json:"accountId"`
-	Token     string `json:"token"`
+	UserID       string `json:"userId"`
+	AccountID    string `json:"accountId"`
+	Token        string `json:"token"`        // short-lived access token
+	RefreshToken string `json:"refreshToken"` // long-lived refresh token
 }
 
 // DevicesResponse lists the device userIDs sharing an account, so a sender can

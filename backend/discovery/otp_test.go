@@ -16,12 +16,12 @@ func TestVerifyLocksOutAfterTooManyWrongGuesses(t *testing.T) {
 	}
 
 	for i := 0; i < maxOTPAttempts; i++ {
-		if _, ok := s.verify(uid, "000000"); ok {
+		if _, _, ok := s.verify(uid, "000000"); ok {
 			t.Fatal("wrong code should never verify")
 		}
 	}
 	// The pending code is now burned — the correct one is rejected too.
-	if _, ok := s.verify(uid, otp); ok {
+	if _, _, ok := s.verify(uid, otp); ok {
 		t.Fatal("code should be burned after the attempt cap; a fresh one is required")
 	}
 }
@@ -36,7 +36,7 @@ func TestVerifyRejectsExpiredCode(t *testing.T) {
 	s.pending[uid].expiresAt = time.Now().Add(-time.Second)
 	s.mu.Unlock()
 
-	if _, ok := s.verify(uid, otp); ok {
+	if _, _, ok := s.verify(uid, otp); ok {
 		t.Fatal("an expired code must not verify")
 	}
 }
@@ -46,7 +46,7 @@ func TestVerifySucceedsWithinLimits(t *testing.T) {
 	s := NewStore()
 	uid, otp, _ := s.register(sampleReq("+2348011112222"))
 	s.verify(uid, "111111") // one wrong guess, under the cap
-	if _, ok := s.verify(uid, otp); !ok {
+	if _, _, ok := s.verify(uid, otp); !ok {
 		t.Fatal("correct code under the attempt cap and before expiry should verify")
 	}
 }

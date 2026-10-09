@@ -30,7 +30,7 @@ func TestPersistentStore_SurvivesRestart(t *testing.T) {
 	// First boot: register + verify an account.
 	s1 := NewPersistentStore(path)
 	uid, otp, _ := s1.register(sampleReq("+2348011112222"))
-	if _, ok := s1.verify(uid, otp); !ok {
+	if _, _, ok := s1.verify(uid, otp); !ok {
 		t.Fatal("verify failed on first boot")
 	}
 	saltBefore := s1.saltB64()
@@ -57,7 +57,7 @@ func TestPersistentStore_SurvivesRestart(t *testing.T) {
 func TestInMemoryStore_NoPersistence(t *testing.T) {
 	s := NewStore()
 	uid, otp, _ := s.register(sampleReq("+2348010000001"))
-	if _, ok := s.verify(uid, otp); !ok {
+	if _, _, ok := s.verify(uid, otp); !ok {
 		t.Fatal("verify failed")
 	}
 	if s.path != "" {

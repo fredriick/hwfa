@@ -97,12 +97,29 @@ func (h *handlers) verify(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	token, ok := h.store.verify(req.UserID, req.Code)
+	access, refresh, ok := h.store.verify(req.UserID, req.Code)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "invalid userId or code")
 		return
 	}
-	writeJSON(w, http.StatusOK, VerifyResponse{Verified: true, Token: token})
+	writeJSON(w, http.StatusOK, VerifyResponse{Verified: true, Token: access, RefreshToken: refresh})
+}
+
+// POST /v1/auth/refresh — trade a refresh token for a fresh access token (and a
+// rotated refresh token). Fails once the device/account is gone, which is how
+// revocation and deletion take effect.
+func (h *handlers) refresh(w http.ResponseWriter, r *http.Request) {
+	var req RefreshRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	access, refresh, ok := h.store.refresh(req.RefreshToken)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "invalid or revoked refresh token")
+		return
+	}
+	writeJSON(w, http.StatusOK, RefreshResponse{Token: access, RefreshToken: refresh})
 }
 
 // GET /v1/keys/{userId} — fetch a peer's bundle, consuming one one-time prekey.
@@ -201,12 +218,14 @@ func (h *handlers) link(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "missing token or identity key")
 		return
 	}
-	userID, accountID, token, ok := h.store.linkDevice(req.Token, req.asRegister())
+	userID, accountID, access, refresh, ok := h.store.linkDevice(req.Token, req.asRegister())
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "invalid or expired link token")
 		return
 	}
-	writeJSON(w, http.StatusOK, LinkResponse{UserID: userID, AccountID: accountID, Token: token})
+	writeJSON(w, http.StatusOK, LinkResponse{
+		UserID: userID, AccountID: accountID, Token: access, RefreshToken: refresh,
+	})
 }
 
 // GET /v1/accounts/{accountId}/devices — list the device userIDs sharing an

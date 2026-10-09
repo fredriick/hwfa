@@ -47,7 +47,7 @@ func TestDeleteAccountPurgesEverything(t *testing.T) {
 	primary, otp, _ := s.register(sampleReq("+2348011112222"))
 	s.verify(primary, otp)
 	token, _ := s.createLinkToken(primary)
-	linked, _, _, _ := s.linkDevice(token, sampleReq(""))
+	linked, _, _, _, _ := s.linkDevice(token, sampleReq(""))
 
 	if !s.deleteAccount(primary) {
 		t.Fatal("deleteAccount should succeed for a real account")

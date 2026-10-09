@@ -56,6 +56,7 @@ func main() {
 
 	mux.HandleFunc("POST /v1/accounts/register", h.register)
 	mux.HandleFunc("POST /v1/accounts/verify", h.verify)
+	mux.HandleFunc("POST /v1/auth/refresh", h.refresh)
 	mux.HandleFunc("DELETE /v1/accounts", h.deleteAccount)
 	mux.HandleFunc("GET /v1/keys/pool", h.keyPool)
 	mux.HandleFunc("GET /v1/keys/{userId}", h.fetchKeys)

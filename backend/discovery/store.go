@@ -15,9 +15,20 @@ import (
 	"hwfa/authtoken"
 )
 
-// tokenTTL bounds a leaked bearer token's lifetime. Long enough that a resumed
-// session rarely needs re-verification; a refresh flow is a later addition.
-const tokenTTL = 30 * 24 * time.Hour
+// Access tokens are short-lived (authorize API/relay/media); refresh tokens are
+// long-lived and only buy a new access token. Revoking a device / deleting an
+// account removes its account record, so refresh then fails and access dies
+// within accessTTL — without any server-side token store.
+const (
+	accessTTL  = 15 * time.Minute
+	refreshTTL = 30 * 24 * time.Hour
+)
+
+// issueTokens mints a fresh (access, refresh) pair for a user id.
+func (s *Store) issueTokens(uid string) (access, refresh string) {
+	return authtoken.Sign(s.secret, uid, authtoken.KindAccess, accessTTL),
+		authtoken.Sign(s.secret, uid, authtoken.KindRefresh, refreshTTL)
+}
 
 // linkTTL is how long a device-provisioning token stays valid after the primary
 // device mints it. Short by design: the code is meant to be used immediately.
@@ -303,33 +314,52 @@ func (s *Store) register(req RegisterRequest) (userID, otp string, ok bool) {
 // verified and issues a bearer token. A code that is expired, or has been
 // guessed wrong too many times, is discarded — forcing the client to request a
 // fresh one — so the 6-digit space can't be brute-forced.
-func (s *Store) verify(userID, code string) (token string, ok bool) {
+func (s *Store) verify(userID, code string) (access, refresh string, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	p := s.pending[userID]
 	if p == nil {
-		return "", false
+		return "", "", false
 	}
 	if time.Now().After(p.expiresAt) {
 		delete(s.pending, userID)
-		return "", false
+		return "", "", false
 	}
 	if p.code != code {
 		p.attempts++
 		if p.attempts >= maxOTPAttempts {
 			delete(s.pending, userID) // too many wrong guesses — burn the code
 		}
-		return "", false
+		return "", "", false
 	}
 	acct, exists := s.accounts[userID]
 	if !exists {
-		return "", false
+		return "", "", false
 	}
 	acct.verified = true
 	delete(s.pending, userID)
 	s.persistLocked()
-	return authtoken.Sign(s.secret, userID, tokenTTL), true
+	access, refresh = s.issueTokens(userID)
+	return access, refresh, true
+}
+
+// refresh exchanges a valid refresh token for a fresh (access, refresh) pair,
+// but ONLY if the account still exists — so revoking a device or deleting an
+// account stops its refresh, and its access dies within accessTTL. This is the
+// single stateful revocation check; access verification stays stateless.
+func (s *Store) refresh(refreshToken string) (access, refresh string, ok bool) {
+	uid, kind, valid := authtoken.Verify(s.secret, refreshToken)
+	if !valid || kind != authtoken.KindRefresh {
+		return "", "", false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if acct, exists := s.accounts[uid]; !exists || !acct.verified {
+		return "", "", false // device revoked / account deleted
+	}
+	access, refresh = s.issueTokens(uid)
+	return access, refresh, true
 }
 
 // createLinkToken mints a short-lived provisioning token authorizing another
@@ -346,18 +376,18 @@ func (s *Store) createLinkToken(accountID string) (token string, ttl time.Durati
 // token's account. The device is verified immediately (the token is the
 // authorization) and has no phone hash, so only the primary stays discoverable
 // by number. Returns the new device's userID, its accountID, and a bearer token.
-func (s *Store) linkDevice(token string, req RegisterRequest) (userID, accountID, bearer string, ok bool) {
+func (s *Store) linkDevice(token string, req RegisterRequest) (userID, accountID, access, refresh string, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	lt, exists := s.linkTokens[token]
 	if !exists || time.Now().After(lt.expiresAt) {
 		delete(s.linkTokens, token) // clean up an expired token
-		return "", "", "", false
+		return "", "", "", "", false
 	}
 	// The account being joined must still exist.
 	if _, exists := s.accounts[lt.accountID]; !exists {
-		return "", "", "", false
+		return "", "", "", "", false
 	}
 
 	userID = newUUID()
@@ -383,7 +413,8 @@ func (s *Store) linkDevice(token string, req RegisterRequest) (userID, accountID
 	}
 	delete(s.linkTokens, token) // one-time use
 	s.persistLocked()
-	return userID, lt.accountID, authtoken.Sign(s.secret, userID, tokenTTL), true
+	access, refresh = s.issueTokens(userID)
+	return userID, lt.accountID, access, refresh, true
 }
 
 // devicesFor returns the userIDs of every verified device sharing an accountID
@@ -484,10 +515,15 @@ func (s *Store) removeDevice(callerUserID, targetUserID string) bool {
 	return true
 }
 
-// userForToken resolves a bearer token to its account userID by verifying its
-// signature + expiry (stateless — no server-side token store).
+// userForToken resolves a bearer ACCESS token to its account userID, verifying
+// signature + expiry + kind (stateless — no server-side token store). A refresh
+// token is rejected here; it is only valid at the refresh endpoint.
 func (s *Store) userForToken(token string) (string, bool) {
-	return authtoken.Verify(s.secret, token)
+	uid, kind, ok := authtoken.Verify(s.secret, token)
+	if !ok || kind != authtoken.KindAccess {
+		return "", false
+	}
+	return uid, true
 }
 
 // bundleFor returns a peer's published bundle, consuming one one-time prekey

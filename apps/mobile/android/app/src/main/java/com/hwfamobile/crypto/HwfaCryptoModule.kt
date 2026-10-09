@@ -254,12 +254,13 @@ class HwfaCryptoModule(reactContext: ReactApplicationContext) :
    * without re-verifying the phone number.
    */
   @ReactMethod
-  fun saveAccount(accountId: String, phone: String, token: String, promise: Promise) {
+  fun saveAccount(accountId: String, phone: String, token: String, refreshToken: String, promise: Promise) {
     try {
       prefs.edit()
         .putString(ACCOUNT_ID, accountId)
         .putString(ACCOUNT_PHONE, phone)
         .putString(ACCOUNT_TOKEN, token)
+        .putString(ACCOUNT_REFRESH, refreshToken)
         .putInt(ACCOUNT_DEVICE, localDeviceId)
         .apply()
       promise.resolve(null)
@@ -282,6 +283,7 @@ class HwfaCryptoModule(reactContext: ReactApplicationContext) :
       result.putInt("deviceId", prefs.getInt(ACCOUNT_DEVICE, localDeviceId))
       result.putString("phone", prefs.getString(ACCOUNT_PHONE, "") ?: "")
       result.putString("token", prefs.getString(ACCOUNT_TOKEN, "") ?: "")
+      result.putString("refreshToken", prefs.getString(ACCOUNT_REFRESH, "") ?: "")
       promise.resolve(result)
     } catch (e: Exception) {
       promise.reject("loadAccount", e)
@@ -352,6 +354,7 @@ class HwfaCryptoModule(reactContext: ReactApplicationContext) :
     private const val ACCOUNT_ID = "account:id"
     private const val ACCOUNT_PHONE = "account:phone"
     private const val ACCOUNT_TOKEN = "account:token"
+    private const val ACCOUNT_REFRESH = "account:refresh"
     private const val ACCOUNT_DEVICE = "account:device"
     private const val MESSAGES = "messages"
     private const val REPORTS = "reports"

@@ -58,17 +58,19 @@ behaviour so demos and headless tests run with zero config.
 ---
 
 ## 3. Auth & token model
-- Bearer tokens are compact HMAC-SHA256 (`{uid, exp}`), signed by discovery at
-  verify/link and verified locally (stateless) by relay and media.
-- TTL is **30 days**; there is **no refresh flow yet**, so a session older than
-  that re-verifies. Relay identity is derived from the token, never a
-  client-supplied id.
-- The mobile client persists the token in the Keystore-encrypted store and
-  restores it on resume.
-- **Revocation caveat:** tokens are stateless, so revoking a linked device (or
-  deleting an account) stops fanout + discovery immediately but does **not**
-  invalidate an already-issued token until it expires. A live-session kill needs
-  token denylisting or short-TTL + refresh — a planned hardening.
+- Compact HMAC-SHA256 tokens (`{uid, kind, exp}`), signed by discovery and
+  verified locally (stateless) by relay and media. Relay identity comes from the
+  token, never a client-supplied id.
+- **Two kinds:** a short-lived **access** token (15 min) authorizes API/relay/
+  media calls; a long-lived **refresh** token (30 days) buys new access tokens
+  at `POST /v1/auth/refresh`. The client refreshes transparently (on a 401 or an
+  expiring access token). Both are persisted in the Keystore-encrypted store and
+  restored on resume.
+- **Revocation:** `refresh` succeeds only while the account/device still exists,
+  so revoking a linked device or deleting an account stops new access within the
+  access TTL (≤15 min) — no server-side token store needed. Caveat: an
+  already-connected relay socket (authenticated at upgrade) stays up until it
+  drops; a mid-session kill of a live socket is future work.
 
 ## 4. TLS & networking
 - Terminate TLS at a reverse proxy in front of all three services; clients must

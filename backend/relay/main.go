@@ -105,8 +105,8 @@ func main() {
 			http.Error(w, "missing deviceId", http.StatusBadRequest)
 			return
 		}
-		userID, ok := authtoken.Verify(secret, r.URL.Query().Get("token"))
-		if !ok {
+		userID, kind, ok := authtoken.Verify(secret, r.URL.Query().Get("token"))
+		if !ok || kind != authtoken.KindAccess {
 			http.Error(w, "missing or invalid token", http.StatusUnauthorized)
 			return
 		}

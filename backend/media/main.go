@@ -68,8 +68,8 @@ func (s *server) authed(r *http.Request) bool {
 	if !strings.HasPrefix(auth, "Bearer ") {
 		return false
 	}
-	_, ok := authtoken.Verify(s.secret, strings.TrimSpace(strings.TrimPrefix(auth, "Bearer ")))
-	return ok
+	_, kind, ok := authtoken.Verify(s.secret, strings.TrimSpace(strings.TrimPrefix(auth, "Bearer ")))
+	return ok && kind == authtoken.KindAccess
 }
 
 func (s *server) objectPath(key string) string {

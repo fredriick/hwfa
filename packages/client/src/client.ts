@@ -116,14 +116,24 @@ export class HwfaClient {
     return this.userId;
   }
 
-  /** The Discovery bearer token from onboarding/linking, to persist for resume. */
+  /** The current Discovery access token, to persist for resume. */
   get discoveryToken(): string | null {
     return this.discovery.bearerToken;
   }
 
-  /** Restore a persisted Discovery bearer token (on resume, before any authed call). */
+  /** The current Discovery refresh token, to persist alongside the access token. */
+  get discoveryRefreshToken(): string | null {
+    return this.discovery.refreshToken;
+  }
+
+  /** Restore a persisted Discovery access token (legacy single-token path). */
   setDiscoveryToken(token: string): void {
     this.discovery.setToken(token);
+  }
+
+  /** Restore persisted access + refresh tokens on resume (before any authed call). */
+  setDiscoveryTokens(access: string, refresh: string): void {
+    this.discovery.setTokens(access, refresh);
   }
 
   /**
@@ -201,6 +211,9 @@ export class HwfaClient {
   /** Open (or reuse) the relay socket under our onboarded identity. */
   async connectRelay(): Promise<void> {
     if (!this.userId) throw new Error("onboard() before connecting the relay");
+    // Refresh the short-lived access token if it's expired, so the relay (which
+    // checks it at the upgrade) accepts the connection.
+    await this.discovery.ensureAccess();
     const token = this.discovery.bearerToken;
     if (!token) throw new Error("no auth token — verify (or restore a saved token) before connecting");
     if (this.relay) return;

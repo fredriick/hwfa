@@ -161,6 +161,15 @@ test("HwfaClient: onboard, discover, and exchange E2EE texts through the real se
   await until(() => aliceInbox.length === 1);
   assert.equal(aliceInbox[0]!.text, "Got it, ratchet works ✅", "Alice decrypts Bob's reply");
 
+  // 4a) Access tokens are short-lived: a stale one is transparently refreshed.
+  // Inject a bogus access token (keeping the real refresh token); the next
+  // authed call should 401, refresh, and retry without the caller noticing.
+  const bobRefresh = bob.discoveryRefreshToken;
+  assert.ok(bobRefresh, "Bob has a refresh token after onboarding");
+  bob.setDiscoveryTokens("bogus.accesstoken", bobRefresh!);
+  const viaRefresh = await bob.myDevices();
+  assert.ok(viaRefresh.length >= 1, "an authed call recovers via refresh after a stale access token");
+
   // 4b) Bob reviews his devices (primary + linked) and revokes the linked one.
   const bobDevicesBefore = await bob.myDevices();
   assert.equal(bobDevicesBefore.length, 2, "Bob sees his primary + linked device");
