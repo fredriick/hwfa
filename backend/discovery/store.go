@@ -437,6 +437,53 @@ func (s *Store) deleteAccount(userID string) bool {
 	return true
 }
 
+// accountDevices lists the verified devices on the caller's account (primary
+// plus any linked), so the user can review and manage them. Returns nil if the
+// caller isn't found.
+func (s *Store) accountDevices(userID string) []DeviceInfo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	caller, ok := s.accounts[userID]
+	if !ok {
+		return nil
+	}
+	var out []DeviceInfo
+	for id, a := range s.accounts {
+		if a.verified && a.accountID == caller.accountID {
+			out = append(out, DeviceInfo{
+				UserID:   id,
+				DeviceID: a.deviceID,
+				Primary:  id == a.accountID, // the primary device is its own account id
+			})
+		}
+	}
+	return out
+}
+
+// removeDevice revokes a single LINKED device from the caller's account. The
+// target must be on the same account and must not be the primary (to drop the
+// primary, delete the whole account). Returns false if the target isn't a
+// removable linked device of the caller.
+func (s *Store) removeDevice(callerUserID, targetUserID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	caller, ok := s.accounts[callerUserID]
+	if !ok {
+		return false
+	}
+	target, ok := s.accounts[targetUserID]
+	if !ok || target.accountID != caller.accountID {
+		return false // unknown, or not on the caller's account
+	}
+	if targetUserID == target.accountID {
+		return false // the primary — use account deletion instead
+	}
+	delete(s.pending, targetUserID)
+	delete(s.accounts, targetUserID)
+	s.persistLocked()
+	return true
+}
+
 // userForToken resolves a bearer token to its account userID by verifying its
 // signature + expiry (stateless — no server-side token store).
 func (s *Store) userForToken(token string) (string, bool) {

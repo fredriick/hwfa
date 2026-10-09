@@ -7,7 +7,7 @@
  * moves ids, ciphertext, and plaintext between the provider and the network.
  */
 import type { Envelope, MessageStatus, ScamVerdict } from "@hwfa/models";
-import { DiscoveryClient, type FetchLike } from "./discovery.js";
+import { DiscoveryClient, type FetchLike, type DeviceInfo } from "./discovery.js";
 import { RelayConnection, type WebSocketCtor } from "./relay.js";
 import type { CryptoProvider } from "./crypto-provider.js";
 import { heuristicScamDetector, type ScamDetector } from "./scam/detector.js";
@@ -296,6 +296,16 @@ export class HwfaClient {
       // connectRelay reschedules itself on failure, so a bad attempt just retries.
       void this.connectRelay().catch(() => {});
     }, delay);
+  }
+
+  /** List this account's devices (primary + linked) for the management UI. */
+  myDevices(): Promise<DeviceInfo[]> {
+    return this.discovery.listMyDevices();
+  }
+
+  /** Revoke one linked device from this account. */
+  removeDevice(userId: string): Promise<void> {
+    return this.discovery.removeDevice(userId);
   }
 
   /** Our own identity public key (base64), for computing a safety number. */

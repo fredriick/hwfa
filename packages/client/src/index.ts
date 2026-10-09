@@ -18,7 +18,7 @@ export type {
   MessageStatusHandler,
 } from "./client.js";
 export { DiscoveryClient, DiscoveryError } from "./discovery.js";
-export type { ContactMatch, FetchLike } from "./discovery.js";
+export type { ContactMatch, FetchLike, DeviceInfo } from "./discovery.js";
 export { RelayConnection } from "./relay.js";
 export type {
   WebSocketCtor,

@@ -131,6 +131,19 @@ type DevicesResponse struct {
 	Devices []string `json:"devices"`
 }
 
+// DeviceInfo describes one device on the caller's own account (for the user's
+// device-management UI).
+type DeviceInfo struct {
+	UserID   string `json:"userId"`
+	DeviceID int    `json:"deviceId"`
+	Primary  bool   `json:"primary"`
+}
+
+// MyDevicesResponse lists the caller's own devices for review/revocation.
+type MyDevicesResponse struct {
+	Devices []DeviceInfo `json:"devices"`
+}
+
 // AccountResponse resolves a device userID to its accountID, so a recipient can
 // thread messages from any of a peer's devices under one conversation.
 type AccountResponse struct {

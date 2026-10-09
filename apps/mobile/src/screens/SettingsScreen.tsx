@@ -26,6 +26,7 @@ interface Props {
   myUserId: string;
   onBack: () => void;
   onLinkDevice: () => void;
+  onLinkedDevices: () => void;
   onSignedOut: () => void;
 }
 
@@ -61,7 +62,7 @@ function Row({
   );
 }
 
-export function SettingsScreen({ myUserId, onBack, onLinkDevice, onSignedOut }: Props): React.JSX.Element {
+export function SettingsScreen({ myUserId, onBack, onLinkDevice, onLinkedDevices, onSignedOut }: Props): React.JSX.Element {
   const conn = useConnectionState();
   const [phone, setPhone] = useState<string | null>(null);
   const [notif, setNotif] = useState<'unknown' | 'granted' | 'denied'>('unknown');
@@ -170,6 +171,7 @@ export function SettingsScreen({ myUserId, onBack, onLinkDevice, onSignedOut }: 
 
         <Section title="Devices">
           <Row label="Link a device" value="›" onPress={onLinkDevice} />
+          <Row label="Linked devices" value="›" onPress={onLinkedDevices} />
         </Section>
 
         <Section title="Notifications">

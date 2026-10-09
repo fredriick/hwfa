@@ -19,6 +19,7 @@ import { SettingsScreen } from './src/screens/SettingsScreen';
 import { StarredScreen } from './src/screens/StarredScreen';
 import { NewGroupScreen } from './src/screens/NewGroupScreen';
 import { LinkDeviceScreen } from './src/screens/LinkDeviceScreen';
+import { LinkedDevicesScreen } from './src/screens/LinkedDevicesScreen';
 import { SafetyNumberScreen } from './src/screens/SafetyNumberScreen';
 import { CallOverlay } from './src/screens/CallScreen';
 import { callManager } from './src/call/manager';
@@ -41,6 +42,7 @@ type Screen =
   | { name: 'starred' }
   | { name: 'newgroup' }
   | { name: 'linkdevice' }
+  | { name: 'devices' }
   | { name: 'safety'; peerUserId: string; peerPhone?: string }
   | { name: 'chat'; peerUserId: string; peerPhone?: string };
 
@@ -141,6 +143,7 @@ function App(): React.JSX.Element {
             myUserId={userId}
             onBack={() => setScreen({ name: 'home' })}
             onLinkDevice={() => setScreen({ name: 'linkdevice' })}
+            onLinkedDevices={() => setScreen({ name: 'devices' })}
             onSignedOut={() => {
               setUserId(null);
               setScreen({ name: 'welcome' });
@@ -150,6 +153,10 @@ function App(): React.JSX.Element {
 
         {screen.name === 'linkdevice' && userId && (
           <LinkDeviceScreen onBack={() => setScreen({ name: 'settings' })} />
+        )}
+
+        {screen.name === 'devices' && userId && (
+          <LinkedDevicesScreen myUserId={userId} onBack={() => setScreen({ name: 'settings' })} />
         )}
 
         {screen.name === 'starred' && userId && (

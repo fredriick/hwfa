@@ -220,6 +220,37 @@ func (h *handlers) devices(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, DevicesResponse{Devices: h.store.devicesFor(accountID)})
 }
 
+// GET /v1/devices — list the caller's own devices (primary + linked) for the
+// device-management UI.
+func (h *handlers) myDevices(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.bearerUser(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing or invalid token")
+		return
+	}
+	devices := h.store.accountDevices(userID)
+	if devices == nil {
+		writeError(w, http.StatusNotFound, "account not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, MyDevicesResponse{Devices: devices})
+}
+
+// DELETE /v1/devices/{userId} — revoke one linked device from the caller's
+// account (not the primary; use account deletion for that).
+func (h *handlers) removeDevice(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.bearerUser(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing or invalid token")
+		return
+	}
+	if !h.store.removeDevice(userID, r.PathValue("userId")) {
+		writeError(w, http.StatusBadRequest, "not a removable linked device on your account")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // GET /v1/accounts/{userId}/account — resolve a device userID to its accountID,
 // so a recipient threads a linked peer's messages under one conversation.
 func (h *handlers) account(w http.ResponseWriter, r *http.Request) {

@@ -65,6 +65,8 @@ func main() {
 	// Multi-device linking + fanout.
 	mux.HandleFunc("POST /v1/devices/link-token", h.linkToken)
 	mux.HandleFunc("POST /v1/devices/link", h.link)
+	mux.HandleFunc("GET /v1/devices", h.myDevices)
+	mux.HandleFunc("DELETE /v1/devices/{userId}", h.removeDevice)
 	mux.HandleFunc("GET /v1/accounts/{accountId}/devices", h.devices)
 	mux.HandleFunc("GET /v1/accounts/{userId}/account", h.account)
 

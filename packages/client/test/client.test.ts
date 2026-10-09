@@ -161,6 +161,19 @@ test("HwfaClient: onboard, discover, and exchange E2EE texts through the real se
   await until(() => aliceInbox.length === 1);
   assert.equal(aliceInbox[0]!.text, "Got it, ratchet works ✅", "Alice decrypts Bob's reply");
 
+  // 4b) Bob reviews his devices (primary + linked) and revokes the linked one.
+  const bobDevicesBefore = await bob.myDevices();
+  assert.equal(bobDevicesBefore.length, 2, "Bob sees his primary + linked device");
+  assert.equal(
+    bobDevicesBefore.filter((d) => d.primary).length,
+    1,
+    "exactly one device is flagged primary",
+  );
+  await bob.removeDevice(linked.userId);
+  const bobDevicesAfter = await bob.myDevices();
+  assert.equal(bobDevicesAfter.length, 1, "the linked device is revoked");
+  assert.equal(bobDevicesAfter[0]!.userId, bobId, "only Bob's primary remains");
+
   // 5) Alice deletes her account server-side; her number no longer resolves.
   await alice.deleteAccount();
   const gone = await bob.findContact(ALICE_PHONE);

@@ -83,3 +83,51 @@ func TestLinkTokenIsSingleUse(t *testing.T) {
 		t.Fatal("unknown link token must fail")
 	}
 }
+
+// A user can list their devices and revoke a linked one, but not the primary
+// (that requires account deletion), nor a device on someone else's account.
+func TestAccountDevicesAndRemove(t *testing.T) {
+	s := NewStore()
+	primary, otp, _ := s.register(sampleReq("+2348011112222"))
+	s.verify(primary, otp)
+	token, _ := s.createLinkToken(primary)
+	linked, _, _, _ := s.linkDevice(token, sampleReq(""))
+
+	devices := s.accountDevices(primary)
+	if len(devices) != 2 {
+		t.Fatalf("accountDevices = %d, want 2", len(devices))
+	}
+	primaryCount := 0
+	for _, d := range devices {
+		if d.Primary {
+			primaryCount++
+			if d.UserID != primary {
+				t.Errorf("primary flag on wrong device %s", d.UserID)
+			}
+		}
+	}
+	if primaryCount != 1 {
+		t.Errorf("want exactly one primary, got %d", primaryCount)
+	}
+
+	// Can't remove the primary via this path.
+	if s.removeDevice(primary, primary) {
+		t.Error("removing the primary device must fail (use account deletion)")
+	}
+	// A stranger / unknown device can't be removed.
+	other, o2, _ := s.register(sampleReq("+2348019999999"))
+	s.verify(other, o2)
+	if s.removeDevice(primary, other) {
+		t.Error("must not remove a device on another account")
+	}
+	// Revoke the linked device.
+	if !s.removeDevice(primary, linked) {
+		t.Fatal("revoking a linked device should succeed")
+	}
+	if len(s.accountDevices(primary)) != 1 {
+		t.Errorf("after revoke, want 1 device, got %d", len(s.accountDevices(primary)))
+	}
+	if _, ok := s.accountIDFor(linked); ok {
+		t.Error("revoked device should no longer resolve")
+	}
+}

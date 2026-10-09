@@ -15,6 +15,13 @@ export interface ContactMatch {
   userId: string;
 }
 
+/** One device on the caller's own account, for the device-management UI. */
+export interface DeviceInfo {
+  userId: string;
+  deviceId: number;
+  primary: boolean;
+}
+
 export class DiscoveryError extends Error {
   constructor(
     readonly status: number,
@@ -121,6 +128,23 @@ export class DiscoveryClient {
     if (!resp.token) throw new Error("device link failed");
     this.token = resp.token;
     return resp;
+  }
+
+  /** List the caller's own devices (primary + linked) for review/revocation. */
+  async listMyDevices(): Promise<DeviceInfo[]> {
+    const { devices } = await this.get<{ devices: DeviceInfo[] }>("/v1/devices");
+    return devices ?? [];
+  }
+
+  /** Revoke one linked device from the caller's account (204, no body). */
+  async removeDevice(userId: string): Promise<void> {
+    const headers: Record<string, string> = {};
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+    const res = await this.fetchImpl(`${this.baseUrl}/v1/devices/${encodeURIComponent(userId)}`, {
+      method: "DELETE",
+      headers,
+    });
+    if (!res.ok) throw new DiscoveryError(res.status, "/v1/devices", await res.text());
   }
 
   /** List the device user ids sharing an account (for send-side fanout). */
