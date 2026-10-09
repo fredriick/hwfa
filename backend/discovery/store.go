@@ -48,6 +48,22 @@ type pendingOTP struct {
 	attempts  int
 }
 
+// Contact-discovery throttle. The salt is shared, so intersect is inherently
+// enumerable (review finding #4); until a PSI/enclave redesign, cap the hashes
+// per request and the hashes a single account may query per window, which keeps
+// legit address-book scans working while making brute enumeration infeasible.
+const (
+	maxIntersectHashes = 1000      // per request
+	intersectWindow    = time.Hour // budget window
+	intersectBudget    = 5000      // hashes per window per account
+)
+
+// rateWindow is a simple fixed-window counter, reset when the window elapses.
+type rateWindow struct {
+	windowStart time.Time
+	used        int
+}
+
 // account is the server-side record for one registered device. It holds the
 // public key material and the one-time prekey pool. Note what is NOT here: the
 // raw phone number (only a salted hash) and any private keys — Discovery never
@@ -62,8 +78,8 @@ type account struct {
 	// phoneHashB64 = base64(sha256(salt || phoneNumber)). Used for contact
 	// intersection; the raw number is discarded after the OTP is sent. Empty for
 	// linked secondary devices, so only the primary is discoverable by number.
-	phoneHashB64 string
-	deviceID     int
+	phoneHashB64   string
+	deviceID       int
 	registrationID int
 
 	identityKeyB64           string
@@ -85,7 +101,7 @@ type account struct {
 // survive a restart; otherwise it is purely in-memory.
 type Store struct {
 	mu       sync.Mutex
-	path     string              // persistence file; "" = in-memory only
+	path     string // persistence file; "" = in-memory only
 	salt     []byte
 	accounts map[string]*account    // userID -> account (one per device)
 	pending  map[string]*pendingOTP // userID -> code awaiting verification (in-memory)
@@ -94,6 +110,8 @@ type Store struct {
 	secret []byte
 	// lastRegister throttles OTP sends per phone hash (SMS-bomb / cost guard).
 	lastRegister map[string]time.Time
+	// intersectUse throttles contact-discovery queries per account (anti-enumeration).
+	intersectUse map[string]*rateWindow
 	// linkTokens are ephemeral device-provisioning codes (not persisted; they
 	// expire in minutes, so losing them on restart is fine).
 	linkTokens map[string]linkToken // link token -> {accountID, expiry}
@@ -111,6 +129,7 @@ func NewStore() *Store {
 		pending:      make(map[string]*pendingOTP),
 		secret:       authtoken.SecretFromEnv(),
 		lastRegister: make(map[string]time.Time),
+		intersectUse: make(map[string]*rateWindow),
 		linkTokens:   make(map[string]linkToken),
 	}
 }
@@ -484,6 +503,25 @@ func (s *Store) addOneTime(userID string, keys []OneTimePreKey) (int, bool) {
 	acct.oneTime = append(acct.oneTime, keys...)
 	s.persistLocked()
 	return len(acct.oneTime), true
+}
+
+// allowIntersect charges `n` hashes against the caller's fixed-window budget,
+// returning false (and charging nothing) when it would exceed the budget. This
+// throttles contact-discovery enumeration without blocking a normal scan.
+func (s *Store) allowIntersect(uid string, n int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	w := s.intersectUse[uid]
+	if w == nil || now.Sub(w.windowStart) >= intersectWindow {
+		w = &rateWindow{windowStart: now}
+		s.intersectUse[uid] = w
+	}
+	if w.used+n > intersectBudget {
+		return false
+	}
+	w.used += n
+	return true
 }
 
 // intersect returns, for each submitted hash, the matching verified account (if

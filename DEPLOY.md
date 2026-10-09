@@ -108,7 +108,7 @@ behaviour so demos and headless tests run with zero config.
 | Account deletion end-to-end | ✅ server purge + local wipe; relay queue has a 30-day TTL, R2 lifecycle pending (§6) |
 | OTP brute-force protection | ✅ expiry + attempt cap + register cooldown |
 | Relay & media authentication | ✅ signed bearer tokens (§3) |
-| Contact-discovery enumeration | ⏳ **#4 pending** — client-side-hash discovery with a client-known salt is enumerable; the real fix is a PSI/enclave design (Phase-2+). Rate-limit + monitor `intersect` meanwhile |
+| Contact-discovery enumeration | 🟡 **#4 partial** — `intersect` now caps batch size and enforces a per-account hourly hash budget (interim anti-enumeration); the full fix is still a PSI/enclave design (Phase-2+) |
 | ONNX model bundle signature verification | ⏳ Phase 2 (classifier not yet integrated) |
 
 ---

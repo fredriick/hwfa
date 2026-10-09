@@ -247,13 +247,24 @@ func (h *handlers) salt(w http.ResponseWriter, r *http.Request) {
 // POST /v1/contacts/intersect — privacy-preserving contact discovery. (The spec
 // names it GET, but the hash set needs a body; see IntersectRequest.)
 func (h *handlers) intersect(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.bearerUser(r); !ok {
+	userID, ok := h.bearerUser(r)
+	if !ok {
 		writeError(w, http.StatusUnauthorized, "missing or invalid token")
 		return
 	}
 	var req IntersectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	// Anti-enumeration: cap the batch, then charge it against the caller's
+	// per-window budget (the shared salt makes intersect inherently probeable).
+	if len(req.PhoneHashesB64) > maxIntersectHashes {
+		writeError(w, http.StatusBadRequest, "too many hashes in one request")
+		return
+	}
+	if !h.store.allowIntersect(userID, len(req.PhoneHashesB64)) {
+		writeError(w, http.StatusTooManyRequests, "contact-discovery rate limit exceeded; try again later")
 		return
 	}
 	writeJSON(w, http.StatusOK, IntersectResponse{Matches: h.store.intersect(req.PhoneHashesB64)})
