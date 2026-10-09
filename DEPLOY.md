@@ -65,6 +65,10 @@ behaviour so demos and headless tests run with zero config.
   client-supplied id.
 - The mobile client persists the token in the Keystore-encrypted store and
   restores it on resume.
+- **Revocation caveat:** tokens are stateless, so revoking a linked device (or
+  deleting an account) stops fanout + discovery immediately but does **not**
+  invalidate an already-issued token until it expires. A live-session kill needs
+  token denylisting or short-TTL + refresh — a planned hardening.
 
 ## 4. TLS & networking
 - Terminate TLS at a reverse proxy in front of all three services; clients must
