@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "description": "Encrypted P2P messenger with global on-device AI scam detection",
+  "license": "AGPL-3.0-or-later",
   "workspaces": [
     "packages/*",
     "apps/*"

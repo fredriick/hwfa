@@ -44,9 +44,10 @@ with the backend and the `@hwfa/client` headless tests (Kyber PQXDH included).
   SQLCipher (`react-native-quick-sqlite`) and identity keys to the Android
   Keystore / iOS Keychain (`react-native-keychain`) before release.
 
-> ⚠️ **Licensing:** `libsignal` is **AGPL-3.0**. Shipping it makes this app
-> subject to the AGPL. This is a product/legal decision to resolve before
-> release — Signal does not generally grant commercial exceptions.
+> **Licensing:** `libsignal` is **AGPL-3.0**, so this app is too. Hwfa is
+> released under **AGPL-3.0-or-later** (see the repo-root `LICENSE`) — the client
+> is open source. Signal grants no commercial exception, and an auditable client
+> is a trust feature for an E2EE messenger, so this was a deliberate choice.
 
 ## Prerequisites
 

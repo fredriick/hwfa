@@ -121,8 +121,11 @@ behaviour so demos and headless tests run with zero config.
 ---
 
 ## 8. Outstanding blockers (decisions/hardware, not code)
-- **libsignal is AGPL-3.0** — resolve the licensing posture (open-source the
-  client, or another arrangement) before any public release.
+- ~~**libsignal is AGPL-3.0**~~ **RESOLVED** — the project is licensed
+  **AGPL-3.0-or-later** (`LICENSE` at repo root), so the libsignal-linked client
+  is distributable. Running a modified service over a network triggers AGPL §13
+  (offer source to users). No commercial-exception path exists from Signal; this
+  was the right call for an auditable E2EE client.
 - **Two-instance / device-gated verification** — live calls, 2-account groups,
   device linking + fanout, real SMS, and media save need real devices.
   Everything else is proven headlessly (Go + client integration tests).

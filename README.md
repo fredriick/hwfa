@@ -127,3 +127,17 @@ Still ahead: the 1:1 chat UI in `apps/mobile` (React Native), SQLCipher message
 persistence, media sharing, multi-device linking, push (FCM/APNs), and the
 on-device scam-detection ONNX prototype — the parts that need a real device
 runtime. See the spec's Phase 1 checklist.
+
+---
+
+## License
+
+Hwfa is released under the **GNU Affero General Public License v3.0 or later**
+(see [`LICENSE`](./LICENSE)).
+
+The mobile client links [libsignal](https://github.com/signalapp/libsignal),
+which is AGPL-3.0. Distributing the app conveys that combined work, so the whole
+project is AGPL-3.0 — a deliberate choice: an auditable, open-source client is
+part of what makes an end-to-end-encrypted messenger trustworthy. If you run a
+modified Hwfa service over a network, the AGPL's §13 requires you to offer your
+users its source.
