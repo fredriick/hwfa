@@ -16,7 +16,7 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
-import { HwfaClient, type IncomingText } from "../src/index.js";
+import { HwfaClient, safetyNumber, type IncomingText } from "../src/index.js";
 import { NodeCryptoProvider } from "../src/node/index.js";
 
 const RELAY_PORT = 8092;
@@ -160,6 +160,19 @@ test("HwfaClient: onboard, discover, and exchange E2EE texts through the real se
   await bob.sendText(aliceId, "Got it, ratchet works ✅");
   await until(() => aliceInbox.length === 1);
   assert.equal(aliceInbox[0]!.text, "Got it, ratchet works ✅", "Alice decrypts Bob's reply");
+
+  // 4-sn) Safety numbers after a receive-then-send. Bob received Alice's message
+  // first (which only learns her device), then replied — the reply must still
+  // capture Alice's IDENTITY key, or safety numbers are permanently unavailable
+  // for every "they messaged me first" conversation (the common case). Regression
+  // guard for that bug: both sides must independently compute the SAME number.
+  const bobSeesAlice = bob.peerIdentityKey(aliceId);
+  const aliceSeesBob = alice.peerIdentityKey(bobId);
+  assert.ok(bobSeesAlice, "Bob captures Alice's identity key on his reply (receive-then-send)");
+  assert.ok(aliceSeesBob, "Alice captures Bob's identity key when she first sends");
+  const bobNumber = safetyNumber(await bob.localIdentityKey(), bobSeesAlice!);
+  const aliceNumber = safetyNumber(await alice.localIdentityKey(), aliceSeesBob!);
+  assert.equal(bobNumber, aliceNumber, "both sides compute the same safety number");
 
   // 4a) Access tokens are short-lived: a stale one is transparently refreshed.
   // Inject a bogus access token (keeping the real refresh token); the next

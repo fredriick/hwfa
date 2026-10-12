@@ -505,7 +505,22 @@ export class HwfaClient {
   /** Fetch a peer's bundle and establish an outbound session, once per peer. */
   private async ensureSession(peerUserId: string): Promise<number> {
     const known = this.peerDevice.get(peerUserId);
-    if (known !== undefined) return known;
+    if (known !== undefined) {
+      // The session already exists, but we may still lack the peer's identity
+      // key: the inbound path (receiving a message) learns only the device, not
+      // the identity. Backfill it once so safety numbers work for conversations
+      // that began with a received message — the common "they messaged first"
+      // case. Best-effort: a failed fetch just defers it to the next send.
+      if (!this.peerIdentity.has(peerUserId)) {
+        try {
+          const bundle = await this.discovery.fetchBundle(peerUserId);
+          this.peerIdentity.set(peerUserId, bundle.identityKeyB64);
+        } catch {
+          /* leave unset; safety number stays unavailable until this succeeds */
+        }
+      }
+      return known;
+    }
     const bundle = await this.discovery.fetchBundle(peerUserId);
     await this.crypto.establishSession(peerUserId, bundle.deviceId, bundle);
     this.peerDevice.set(peerUserId, bundle.deviceId);
