@@ -126,6 +126,19 @@ behaviour so demos and headless tests run with zero config.
   is distributable. Running a modified service over a network triggers AGPL §13
   (offer source to users). No commercial-exception path exists from Signal; this
   was the right call for an auditable E2EE client.
-- **Two-instance / device-gated verification** — live calls, 2-account groups,
-  device linking + fanout, real SMS, and media save need real devices.
-  Everything else is proven headlessly (Go + client integration tests).
+- **On-device verification** — **largely done** (Android emulator, 2026-10-12).
+  Verified on-device against the live Go services: onboarding (register → OTP →
+  verify → native libsignal key-bundle → tokens → relay), contact discovery,
+  bidirectional 1:1 E2EE text, typing indicators, delivery/read receipts, offline
+  store-and-forward, push-token registration, multi-device link + send-side
+  fanout + revoke, safety-number verification, group creation + messaging,
+  voice-call signaling (SDP offer + ICE + hangup over the E2EE path), on-device
+  scam detection (correct category + inline warning), and account deletion
+  (server purge + local wipe). A real-hardware emulator bug was found and fixed
+  in the process (safety numbers on receive-first conversations, commit 21fc071).
+  **Still unverified — each gated on an external, not code:** a *fully connected*
+  call (needs a second WebRTC endpoint), **media** upload/download (needs R2
+  creds — §1), and **real SMS OTP** delivery (needs TextBee creds — dev-OTP was
+  used throughout). To re-run the emulator pass: build the APK with the emulator
+  off, boot with a hardware GPU (`-gpu host`), run `npm run demo:backend`, and
+  drive a second party with a headless `@hwfa/client` peer (Node crypto provider).
