@@ -41,7 +41,8 @@ hard startup failures (see §2).
 | Var | Notes |
 |---|---|
 | `MEDIA_ADDR` | Listen address, e.g. `:8092`. |
-| `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | Cloudflare R2 credentials. Without all four the presign endpoints return 503. Keys are **server-side only**. |
+| `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | Cloudflare R2 credentials. Without a bucket + key + secret (and a host) the presign endpoints return 503. Keys are **server-side only**. |
+| `MEDIA_S3_ENDPOINT` | Optional. Points presigned URLs at any S3-compatible store (`http(s)://host[:port]`) instead of R2 — e.g. MinIO, or a local dev store. **Use `https` in production; `http` is dev-only.** When set, `R2_ACCOUNT_ID` is unneeded (bucket + key + secret still required). |
 
 ---
 
@@ -136,9 +137,13 @@ behaviour so demos and headless tests run with zero config.
   scam detection (correct category + inline warning), and account deletion
   (server purge + local wipe). A real-hardware emulator bug was found and fixed
   in the process (safety numbers on receive-first conversations, commit 21fc071).
-  **Still unverified — each gated on an external, not code:** a *fully connected*
-  call (needs a second WebRTC endpoint), **media** upload/download (needs R2
-  creds — §1), and **real SMS OTP** delivery (needs TextBee creds — dev-OTP was
-  used throughout). To re-run the emulator pass: build the APK with the emulator
+  **Media** upload/download is now proven headlessly end-to-end (client AES-256-GCM
+  encrypt → token-gated presigned PUT → store → presigned GET → decrypt + sha256
+  verify) against a local S3-compatible store via `MEDIA_S3_ENDPOINT` (§1); the
+  store only ever holds ciphertext. **Still unverified — each gated on an external,
+  not code:** a *fully connected* call (needs a second WebRTC endpoint), media on
+  a real device through the image-picker UI + native cipher (needs R2 or another
+  S3 endpoint — §1), and **real SMS OTP** delivery (needs TextBee creds — dev-OTP
+  was used throughout). To re-run the emulator pass: build the APK with the emulator
   off, boot with a hardware GPU (`-gpu host`), run `npm run demo:backend`, and
   drive a second party with a headless `@hwfa/client` peer (Node crypto provider).

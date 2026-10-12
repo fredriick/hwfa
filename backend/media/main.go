@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -46,14 +47,31 @@ func newServer() *server {
 	bucket := os.Getenv("R2_BUCKET")
 	access := os.Getenv("R2_ACCESS_KEY_ID")
 	secret := os.Getenv("R2_SECRET_ACCESS_KEY")
-	ready := accountID != "" && bucket != "" && access != "" && secret != ""
+
+	host := accountID + ".r2.cloudflarestorage.com"
+	scheme := "https"
+	// MEDIA_S3_ENDPOINT points the presigned URLs at any S3-compatible store
+	// instead of Cloudflare R2 (e.g. a local MinIO, or a dev mock). Format:
+	// "http(s)://host[:port]". Use https in production; http is dev-only.
+	if ep := os.Getenv("MEDIA_S3_ENDPOINT"); ep != "" {
+		if u, err := url.Parse(ep); err == nil && u.Host != "" {
+			host = u.Host
+			if u.Scheme != "" {
+				scheme = u.Scheme
+			}
+		}
+	}
+	// Ready once a bucket + signing creds are set and we have a real host (either
+	// R2 via R2_ACCOUNT_ID, or an explicit MEDIA_S3_ENDPOINT).
+	ready := bucket != "" && access != "" && secret != "" && host != ".r2.cloudflarestorage.com"
 	return &server{
 		cfg: signerConfig{
 			accessKeyID:     access,
 			secretAccessKey: secret,
 			region:          "auto", // R2 requires "auto"
 			service:         "s3",
-			host:            accountID + ".r2.cloudflarestorage.com",
+			host:            host,
+			scheme:          scheme,
 		},
 		bucket: bucket,
 		ready:  ready,

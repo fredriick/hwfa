@@ -22,6 +22,7 @@ type signerConfig struct {
 	region          string // R2: "auto"
 	service         string // "s3"
 	host            string // "<account-id>.r2.cloudflarestorage.com"
+	scheme          string // "https" (R2); "http" only for a local S3-compatible dev store
 }
 
 // presign builds a presigned URL for `method` on `path` (e.g. "/bucket/key"),
@@ -79,7 +80,11 @@ func presign(cfg signerConfig, method, path string, expires time.Duration, now t
 	signingKey := deriveSigningKey(cfg.secretAccessKey, dateStamp, cfg.region, cfg.service)
 	signature := hex.EncodeToString(hmacSHA256(signingKey, stringToSign))
 
-	return "https://" + cfg.host + canonicalURI + "?" + canonicalQuery + "&X-Amz-Signature=" + signature
+	scheme := cfg.scheme
+	if scheme == "" {
+		scheme = "https"
+	}
+	return scheme + "://" + cfg.host + canonicalURI + "?" + canonicalQuery + "&X-Amz-Signature=" + signature
 }
 
 func deriveSigningKey(secret, dateStamp, region, service string) []byte {

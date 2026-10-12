@@ -58,3 +58,34 @@ func TestPresign_R2PutShape(t *testing.T) {
 		t.Fatalf("missing signature: %s", url)
 	}
 }
+
+// A custom scheme/host (for an S3-compatible store set via MEDIA_S3_ENDPOINT)
+// is honored; the default stays https. The signature is over the host only, so
+// the scheme choice must not change it — the two signatures below must match.
+func TestPresign_SchemeOverride(t *testing.T) {
+	base := signerConfig{
+		accessKeyID:     "test-key",
+		secretAccessKey: "test-secret",
+		region:          "auto",
+		service:         "s3",
+		host:            "localhost:9099",
+	}
+	when := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
+
+	https := presign(base, "PUT", "/hwfa-media/obj", 15*time.Minute, when)
+	if !strings.HasPrefix(https, "https://localhost:9099/hwfa-media/obj?") {
+		t.Fatalf("empty scheme should default to https, got: %s", https)
+	}
+
+	httpCfg := base
+	httpCfg.scheme = "http"
+	httpURL := presign(httpCfg, "PUT", "/hwfa-media/obj", 15*time.Minute, when)
+	if !strings.HasPrefix(httpURL, "http://localhost:9099/hwfa-media/obj?") {
+		t.Fatalf("scheme=http should be honored, got: %s", httpURL)
+	}
+
+	sig := func(u string) string { _, s, _ := strings.Cut(u, "X-Amz-Signature="); return s }
+	if sig(https) != sig(httpURL) {
+		t.Fatalf("scheme must not affect the signature:\n https=%s\n http =%s", https, httpURL)
+	}
+}
