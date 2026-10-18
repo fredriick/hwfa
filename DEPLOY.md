@@ -153,9 +153,16 @@ behaviour so demos and headless tests run with zero config.
   it. Also, the production gateway phone should be a **dedicated sender** whose
   number differs from any user's (a phone texting its own SIM is an unreliable
   edge case).
-  **Still unverified — each gated on an external, not code:** a *fully connected*
-  call (needs a second WebRTC endpoint), and media on a real device through the
-  image-picker UI + native cipher (needs R2 or another S3 endpoint — §1). To
-  re-run the emulator pass: build the APK with the emulator
+  A **fully connected call** is now proven headlessly (2026-10-18): two WebRTC
+  endpoints negotiated a live connection over the real relay using the app's exact
+  call signaling (`apps/mobile/src/call/wire.ts` — ring=offer, accept=answer, ice
+  trickle, hangup carried on the E2EE sendText path), both reached ICE/connection
+  state `connected`, and each received the other's audio track. The headless peers
+  used a pure-JS WebRTC stack; the on-device `react-native-webrtc` engine itself was
+  exercised only for signaling (SDP offer + ICE + hangup) in the emulator pass, so a
+  device-to-device connected call over that native engine remains the one on-device
+  gap. **Still unverified — gated on an external, not code:** media on a real device
+  through the image-picker UI + native cipher (needs R2 or another S3 endpoint —
+  §1). To re-run the emulator pass: build the APK with the emulator
   off, boot with a hardware GPU (`-gpu host`), run `npm run demo:backend`, and
   drive a second party with a headless `@hwfa/client` peer (Node crypto provider).
