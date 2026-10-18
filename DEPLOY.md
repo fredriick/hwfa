@@ -140,10 +140,16 @@ behaviour so demos and headless tests run with zero config.
   **Media** upload/download is now proven headlessly end-to-end (client AES-256-GCM
   encrypt → token-gated presigned PUT → store → presigned GET → decrypt + sha256
   verify) against a local S3-compatible store via `MEDIA_S3_ENDPOINT` (§1); the
-  store only ever holds ciphertext. **Still unverified — each gated on an external,
-  not code:** a *fully connected* call (needs a second WebRTC endpoint), media on
-  a real device through the image-picker UI + native cipher (needs R2 or another
-  S3 endpoint — §1), and **real SMS OTP** delivery (needs TextBee creds — dev-OTP
-  was used throughout). To re-run the emulator pass: build the APK with the emulator
+  store only ever holds ciphertext. **Real SMS OTP delivery is now verified**
+  (2026-10-18): with `TEXTBEE_API_KEY` + `TEXTBEE_DEVICE_ID` set (in the gitignored
+  `backend/discovery/.env.local`), a live `register` routed the OTP through the
+  TextBee Android gateway (`POST /api/v1/gateway/send-sms` → HTTP 200, "added to
+  queue") and the verification code was received on a real handset. Note: the
+  production gateway phone should be a **dedicated sender** whose number differs
+  from any user's (a phone texting its own SIM is an unreliable edge case).
+  **Still unverified — each gated on an external, not code:** a *fully connected*
+  call (needs a second WebRTC endpoint), and media on a real device through the
+  image-picker UI + native cipher (needs R2 or another S3 endpoint — §1). To
+  re-run the emulator pass: build the APK with the emulator
   off, boot with a hardware GPU (`-gpu host`), run `npm run demo:backend`, and
   drive a second party with a headless `@hwfa/client` peer (Node crypto provider).
